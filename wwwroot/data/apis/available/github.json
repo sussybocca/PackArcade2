@@ -1,0 +1,7 @@
+{
+  "Id": "github",
+  "Name": "GitHub API",
+  "Description": "GitHub integration",
+  "Endpoint": "https://api.github.com",
+  "Connected": false
+}

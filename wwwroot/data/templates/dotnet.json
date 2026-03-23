@@ -1,0 +1,13 @@
+{
+  "Id": "dotnet",
+  "Name": "ASP.NET Core Web API",
+  "Description": "C# with Entity Framework",
+  "Type": "csharp",
+  "Files": [
+    {
+      "Name": "Program.cs",
+      "Type": "cs",
+      "Content": "using Microsoft.AspNetCore.Builder;\nusing Microsoft.Extensions.DependencyInjection;\nusing Microsoft.Extensions.Hosting;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddControllers();\nbuilder.Services.AddEndpointsApiExplorer();\nbuilder.Services.AddSwaggerGen();\n\nvar app = builder.Build();\n\nif (app.Environment.IsDevelopment())\n{\n    app.UseSwagger();\n    app.UseSwaggerUI();\n}\n\napp.UseHttpsRedirection();\napp.UseAuthorization();\napp.MapControllers();\napp.Run();"
+    }
+  ]
+}

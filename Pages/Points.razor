@@ -1,0 +1,656 @@
+@page "/points"
+@using PackArcade2.Services
+@inject PointsService PointsService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Points & Time - PackArcade2</PageTitle>
+
+<div class="points-container">
+    <div class="points-header">
+        <h1>🎮 Points & Time System</h1>
+        <p>Play games, earn points, and unlock more time!</p>
+    </div>
+    
+    <div class="points-dashboard">
+        <div class="stat-card">
+            <div class="stat-icon">⭐</div>
+            <div class="stat-value">@userPoints.Points</div>
+            <div class="stat-label">Current Points</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">🏆</div>
+            <div class="stat-value">@userPoints.TotalPointsEarned</div>
+            <div class="stat-label">Total Earned</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">💸</div>
+            <div class="stat-value">@userPoints.TotalPointsSpent</div>
+            <div class="stat-label">Total Spent</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">⏱️</div>
+            <div class="stat-value">@timeReduction.RemainingToday.ToString(@"hh\:mm")</div>
+            <div class="stat-label">Time Remaining Today</div>
+        </div>
+    </div>
+    
+    <div class="time-info">
+        <div class="info-box">
+            <h3>⏰ Your Time Status</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: @((timeReduction.UsedToday.TotalHours / timeReduction.DailyLimit.TotalHours * 100))%"></div>
+            </div>
+            <p>Used: @timeReduction.UsedToday.ToString(@"hh\:mm") / @timeReduction.DailyLimit.ToString(@"hh\:mm")</p>
+            <p>Penalty: @((1 - timeReduction.ReductionMultiplier) * 100)% reduction</p>
+            <p>Points Spent: @timeReduction.PointsSpentTotal</p>
+            <p>Next Reset: @timeReduction.NextReset.ToString("HH:mm")</p>
+        </div>
+        
+        <div class="info-box">
+            <h3>🎮 How to Earn Points</h3>
+            <ul>
+                <li>Play Martin's Runner - <strong>2 points per game</strong></li>
+                <li>Complete levels - <strong>Bonus points!</strong></li>
+                <li>High scores - <strong>Extra points!</strong></li>
+                <li>Daily login - <strong>10 points</strong></li>
+            </ul>
+        </div>
+        
+        <div class="info-box">
+            <h3>💰 Spending Points</h3>
+            <ul>
+                <li>Use Editor - <strong>10 points</strong></li>
+                <li>Use AI Assistant - <strong>5 points</strong></li>
+                <li>Play Runner Game - <strong>2 points</strong></li>
+                <li>Private Session - <strong>50 points</strong></li>
+                <li>Server Backup - <strong>100 points</strong></li>
+                <li>Extend Project - <strong>50 points/day</strong></li>
+                <li>Freeze Project - <strong>20 points/day</strong></li>
+                <li>API Key - <strong>500 points (30 days)</strong></li>
+                <li>Scheduled Run - <strong>100 points/run</strong></li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="leaderboard">
+        <h2>🏆 Top Point Earners</h2>
+        <table class="leaderboard-table">
+            <thead>
+                <tr><th>Rank</th><th>User</th><th>Points</th> </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in leaderboard.Take(10))
+                {
+                    <tr>
+                        <td>@(leaderboard.ToList().IndexOf(entry) + 1)</td>
+                        <td>@entry.Key</td>
+                        <td>@entry.Value</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="recent-transactions">
+        <h2>📜 Recent Transactions</h2>
+        <div class="transaction-list">
+            @foreach (var tx in userPoints.Transactions.OrderByDescending(t => t.Timestamp).Take(20))
+            {
+                <div class="transaction @(tx.Type == "Earn" ? "earn" : "spend")">
+                    <span class="tx-type">@tx.Type</span>
+                    <span class="tx-amount">@(tx.Amount > 0 ? $"+{tx.Amount}" : tx.Amount.ToString())</span>
+                    <span class="tx-source">@tx.Source</span>
+                    <span class="tx-time">@tx.Timestamp.ToString("HH:mm")</span>
+                </div>
+            }
+        </div>
+    </div>
+    
+    <!-- Feature Sections -->
+    <div class="feature-section">
+        <h2>🔋 Project Management</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>Extend Project Lifespan</h3>
+                <p>Keep your projects alive longer!</p>
+                <p class="cost">50 points/day</p>
+                <input @bind="extendProjectName" placeholder="Project name" />
+                <input @bind="extendDays" type="number" min="1" max="365" />
+                <button @onclick="ExtendProject">Extend</button>
+            </div>
+            
+            <div class="feature-card">
+                <h3>Freeze Project</h3>
+                <p>Make project read-only (prevents changes)</p>
+                <p class="cost">20 points/day</p>
+                <input @bind="freezeProjectName" placeholder="Project name" />
+                <input @bind="freezeDays" type="number" min="1" max="30" />
+                <button @onclick="FreezeProject">Freeze</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="feature-section">
+        <h2>🔑 API Keys for Embedding</h2>
+        <div class="feature-card">
+            <p>Generate API keys to embed your projects anywhere!</p>
+            <p class="cost">500 points per key (valid 30 days)</p>
+            <button @onclick="GenerateApiKey">Generate API Key</button>
+            @if (!string.IsNullOrEmpty(newApiKey))
+            {
+                <div class="api-key-display">
+                    <strong>Your API Key:</strong>
+                    <code>@newApiKey</code>
+                    <button @onclick="() => CopyToClipboard(newApiKey)">📋 Copy</button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="feature-section">
+        <h2>⏰ Scheduled Runs</h2>
+        <div class="feature-card">
+            <p>Schedule your projects to run at specific times!</p>
+            <p class="cost">100 points per run</p>
+            <input @bind="scheduleProjectName" placeholder="Project name" />
+            <input @bind="scheduleTime" type="datetime-local" />
+            <button @onclick="ScheduleRun">Schedule Run</button>
+            
+            <h4>Your Scheduled Runs</h4>
+            <div class="scheduled-list">
+                @foreach (var run in scheduledRuns)
+                {
+                    <div class="scheduled-item">
+                        <span>@run.ProjectName</span>
+                        <span>@run.ScheduledAt.ToString("yyyy-MM-dd HH:mm")</span>
+                        <span class="status-@run.Status.ToLower()">@run.Status</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="feature-section">
+        <h2>🔄 Transfer Points</h2>
+        <div class="feature-card">
+            <p>Send points to other users!</p>
+            <input @bind="transferToIp" placeholder="Recipient IP" />
+            <input @bind="transferAmount" type="number" min="1" placeholder="Points" />
+            <button @onclick="TransferPoints">Send Points</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .points-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        color: #fff;
+    }
+    
+    .points-header {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+    
+    .points-header h1 {
+        color: #00ffaa;
+        font-size: 48px;
+    }
+    
+    .points-dashboard {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+    
+    .stat-card {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        border: 1px solid #2a2e3a;
+    }
+    
+    .stat-icon {
+        font-size: 40px;
+        margin-bottom: 10px;
+    }
+    
+    .stat-value {
+        font-size: 32px;
+        font-weight: bold;
+        color: #00ffaa;
+    }
+    
+    .stat-label {
+        color: #6c7293;
+        margin-top: 8px;
+    }
+    
+    .time-info {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+    
+    .info-box {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #2a2e3a;
+    }
+    
+    .info-box h3 {
+        color: #00ffaa;
+        margin-bottom: 16px;
+    }
+    
+    .info-box ul {
+        list-style: none;
+        padding: 0;
+    }
+    
+    .info-box li {
+        padding: 8px 0;
+        border-bottom: 1px solid #2a2e3a;
+    }
+    
+    .progress-bar {
+        background: #2a2e3a;
+        border-radius: 10px;
+        height: 20px;
+        overflow: hidden;
+        margin: 10px 0;
+    }
+    
+    .progress-fill {
+        background: linear-gradient(90deg, #00ffaa, #44ff44);
+        height: 100%;
+        transition: width 0.3s;
+    }
+    
+    .leaderboard {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 40px;
+        border: 1px solid #2a2e3a;
+    }
+    
+    .leaderboard h2 {
+        color: #00ffaa;
+        margin-bottom: 20px;
+    }
+    
+    .leaderboard-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .leaderboard-table th,
+    .leaderboard-table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #2a2e3a;
+    }
+    
+    .leaderboard-table th {
+        color: #00ffaa;
+    }
+    
+    .recent-transactions {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 40px;
+        border: 1px solid #2a2e3a;
+    }
+    
+    .recent-transactions h2 {
+        color: #00ffaa;
+        margin-bottom: 20px;
+    }
+    
+    .transaction {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px;
+        border-bottom: 1px solid #2a2e3a;
+    }
+    
+    .transaction.earn {
+        border-left: 3px solid #44ff44;
+    }
+    
+    .transaction.spend {
+        border-left: 3px solid #ff4444;
+    }
+    
+    .tx-type {
+        font-weight: bold;
+        width: 80px;
+    }
+    
+    .tx-amount {
+        width: 80px;
+    }
+    
+    .earn .tx-amount {
+        color: #44ff44;
+    }
+    
+    .spend .tx-amount {
+        color: #ff4444;
+    }
+    
+    .tx-source {
+        flex: 1;
+    }
+    
+    .tx-time {
+        color: #6c7293;
+    }
+    
+    .feature-section {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 40px;
+        border: 1px solid #2a2e3a;
+    }
+    
+    .feature-section h2 {
+        color: #00ffaa;
+        margin-bottom: 20px;
+    }
+    
+    .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+    }
+    
+    .feature-card {
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 20px;
+        border: 1px solid #2a2e3a;
+    }
+    
+    .feature-card h3 {
+        color: #88ffaa;
+        margin-bottom: 10px;
+    }
+    
+    .feature-card h4 {
+        color: #88aaff;
+        margin: 15px 0 10px 0;
+    }
+    
+    .cost {
+        color: #ffaa44;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    
+    .feature-card input {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        border-radius: 6px;
+        padding: 8px;
+        color: #00ffaa;
+        width: 100%;
+        margin: 8px 0;
+    }
+    
+    .feature-card button {
+        background: #00ffaa;
+        color: #0a0e1a;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        margin-top: 8px;
+    }
+    
+    .feature-card button:hover {
+        background: #88ffaa;
+    }
+    
+    .api-key-display {
+        margin-top: 15px;
+        padding: 10px;
+        background: #0a0e1a;
+        border-radius: 6px;
+    }
+    
+    .api-key-display code {
+        display: block;
+        background: #000;
+        padding: 8px;
+        margin: 8px 0;
+        border-radius: 4px;
+        font-family: monospace;
+        word-break: break-all;
+    }
+    
+    .scheduled-list {
+        margin-top: 15px;
+    }
+    
+    .scheduled-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px;
+        border-bottom: 1px solid #2a2e3a;
+    }
+    
+    .status-pending {
+        color: #ffaa44;
+    }
+    
+    .status-completed {
+        color: #44ff44;
+    }
+    
+    .status-failed {
+        color: #ff4444;
+    }
+</style>
+
+@code {
+    private UserPoints userPoints = new();
+    private TimeReduction timeReduction = new();
+    private Dictionary<string, int> leaderboard = new();
+    
+    // New feature fields
+    private string extendProjectName = "";
+    private int extendDays = 1;
+    private string freezeProjectName = "";
+    private int freezeDays = 1;
+    private string newApiKey = "";
+    private string scheduleProjectName = "";
+    private DateTime scheduleTime = DateTime.Now.AddHours(1);
+    private List<ScheduledRun> scheduledRuns = new();
+    private string transferToIp = "";
+    private int transferAmount = 0;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserData();
+        await LoadScheduledRuns();
+    }
+    
+    private async Task LoadUserData()
+    {
+        try
+        {
+            var ip = await GetClientIP();
+            userPoints = PointsService.GetUserPoints(ip);
+            timeReduction = PointsService.GetTimeReduction(ip);
+            leaderboard = PointsService.GetLeaderboard();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading user data: {ex.Message}");
+        }
+    }
+    
+    private async Task LoadScheduledRuns()
+    {
+        try
+        {
+            var ip = await GetClientIP();
+            scheduledRuns = PointsService.GetUserScheduledRuns(ip);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading scheduled runs: {ex.Message}");
+            scheduledRuns = new List<ScheduledRun>();
+        }
+    }
+    
+    private async Task<string> GetClientIP()
+    {
+        try
+        {
+            return await JSRuntime.InvokeAsync<string>("getClientIP") ?? "unknown";
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+    
+    private async Task ExtendProject()
+    {
+        if (string.IsNullOrEmpty(extendProjectName)) 
+        {
+            await ShowMessage("Please enter a project name", "error");
+            return;
+        }
+        
+        var ip = await GetClientIP();
+        var success = await PointsService.ExtendProjectLifespan(ip, extendProjectName, extendDays);
+        if (success)
+        {
+            await ShowMessage($"✅ Project '{extendProjectName}' extended by {extendDays} days!", "success");
+            await LoadUserData();
+            extendProjectName = "";
+        }
+        else
+        {
+            await ShowMessage($"❌ Not enough points to extend project! Need {extendDays * 50} points.", "error");
+        }
+    }
+    
+    private async Task FreezeProject()
+    {
+        if (string.IsNullOrEmpty(freezeProjectName))
+        {
+            await ShowMessage("Please enter a project name", "error");
+            return;
+        }
+        
+        var ip = await GetClientIP();
+        var success = await PointsService.FreezeProject(ip, freezeProjectName, freezeDays);
+        if (success)
+        {
+            await ShowMessage($"❄️ Project '{freezeProjectName}' frozen for {freezeDays} days!", "success");
+            await LoadUserData();
+            freezeProjectName = "";
+        }
+        else
+        {
+            await ShowMessage($"❌ Not enough points to freeze project! Need {freezeDays * 20} points.", "error");
+        }
+    }
+    
+    private async Task GenerateApiKey()
+    {
+        var ip = await GetClientIP();
+        newApiKey = await PointsService.GenerateApiKey(ip);
+        if (!string.IsNullOrEmpty(newApiKey))
+        {
+            await ShowMessage($"🔑 API Key generated! Valid for 30 days. Keep it safe!", "success");
+            await LoadUserData();
+        }
+        else
+        {
+            await ShowMessage($"❌ Not enough points to generate API key (500 points required)", "error");
+        }
+    }
+    
+    private async Task ScheduleRun()
+    {
+        if (string.IsNullOrEmpty(scheduleProjectName))
+        {
+            await ShowMessage("Please enter a project name", "error");
+            return;
+        }
+        
+        var ip = await GetClientIP();
+        var success = await PointsService.ScheduleRun(ip, scheduleProjectName, scheduleTime.ToUniversalTime());
+        if (success)
+        {
+            await ShowMessage($"⏰ Scheduled run for '{scheduleProjectName}' at {scheduleTime:yyyy-MM-dd HH:mm}", "success");
+            await LoadScheduledRuns();
+            await LoadUserData();
+            scheduleProjectName = "";
+        }
+        else
+        {
+            await ShowMessage($"❌ Not enough points to schedule run (100 points required)", "error");
+        }
+    }
+    
+    private async Task TransferPoints()
+    {
+        if (string.IsNullOrEmpty(transferToIp))
+        {
+            await ShowMessage("Please enter recipient IP", "error");
+            return;
+        }
+        
+        if (transferAmount <= 0)
+        {
+            await ShowMessage("Please enter a valid amount", "error");
+            return;
+        }
+        
+        var ip = await GetClientIP();
+        var success = await PointsService.TransferPoints(ip, transferToIp, transferAmount);
+        if (success)
+        {
+            await ShowMessage($"✅ Transferred {transferAmount} points to {transferToIp}!", "success");
+            await LoadUserData();
+            transferToIp = "";
+            transferAmount = 0;
+        }
+        else
+        {
+            await ShowMessage($"❌ Transfer failed. Check your balance or recipient IP!", "error");
+        }
+    }
+    
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await ShowMessage("✅ Copied to clipboard!", "success");
+    }
+    
+    private async Task ShowMessage(string message, string type)
+    {
+        await JSRuntime.InvokeVoidAsync("alert", message);
+    }
+}

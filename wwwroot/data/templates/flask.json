@@ -1,0 +1,18 @@
+{
+  "Id": "flask",
+  "Name": "Flask REST API",
+  "Description": "Python Flask with SQLAlchemy",
+  "Type": "python",
+  "Files": [
+    {
+      "Name": "app.py",
+      "Type": "py",
+      "Content": "from flask import Flask, jsonify\nfrom flask_cors import CORS\n\napp = Flask(__name__)\nCORS(app)\n\n@app.route(\u0027/api/hello\u0027)\ndef hello():\n    return jsonify({\u0027message\u0027: \u0027Hello from Flask!\u0027})\n\n@app.route(\u0027/api/data\u0027)\ndef data():\n    return jsonify({\u0027items\u0027: [1, 2, 3, 4, 5]})\n\nif __name__ == \u0027__main__\u0027:\n    app.run(host=\u00270.0.0.0\u0027, port=5000, debug=True)"
+    },
+    {
+      "Name": "requirements.txt",
+      "Type": "text",
+      "Content": "flask==2.3.0\nflask-cors==4.0.0"
+    }
+  ]
+}

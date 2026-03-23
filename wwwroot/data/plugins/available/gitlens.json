@@ -1,0 +1,6 @@
+{
+  "Id": "gitlens",
+  "Name": "GitLens",
+  "Description": "Git integration",
+  "Installed": false
+}

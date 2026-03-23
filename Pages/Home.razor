@@ -1,0 +1,95 @@
+@page "/home"
+@using PackArcade2
+@inject GameService GameService
+@inject NavigationManager Navigation
+
+<PageTitle>PackArcade2 - Home</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12 text-center text-white mb-5">
+            <h1 class="display-1">🎮 PackArcade2</h1>
+            <p class="lead">Upload games, create games, get your own subdomain instantly!</p>
+        </div>
+    </div>
+
+    <div class="row mb-5">
+        <div class="col-md-6 mb-3">
+            <div class="card bg-dark text-white h-100" style="cursor: pointer;" @onclick="GoToUpload">
+                <div class="card-body text-center p-5">
+                    <h2 class="mb-3">📤 Upload Game</h2>
+                    <p>Upload your HTML or EXE game and get a subdomain instantly</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-3">
+            <div class="card bg-dark text-white h-100" style="cursor: pointer;" @onclick="GoToCreate">
+                <div class="card-body text-center p-5">
+                    <h2 class="mb-3">✨ Create Game</h2>
+                    <p>Create HTML games directly in your browser</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h3 class="mb-0">Recent Games</h3>
+                </div>
+                <div class="card-body">
+                    @if (games == null)
+                    {
+                        <p class="text-center">Loading...</p>
+                    }
+                    else if (games.Count == 0)
+                    {
+                        <p class="text-center">No games yet. Be the first to upload!</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var game in games)
+                            {
+                                <div class="list-group-item bg-dark text-white border-secondary" style="cursor: pointer;" @onclick="() => PlayGame(game.Subdomain)">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h5 class="mb-1">@game.Name</h5>
+                                            <small class="text-muted">@(game.Subdomain).packarcade.win</small>
+                                        </div>
+                                        <span class="badge bg-@(game.GameType == "exe" ? "danger" : "success")">@game.GameType.ToUpper()</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<GameInfo> games = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        games = await GameService.GetAllGames();
+    }
+
+    private void GoToUpload()
+    {
+        Navigation.NavigateTo("/upload");
+    }
+
+    private void GoToCreate()
+    {
+        Navigation.NavigateTo("/create");
+    }
+
+    private void PlayGame(string subdomain)
+    {
+        Navigation.NavigateTo($"/{subdomain}");
+    }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "livepage-project",
+  "version": "1.0.0",
+  "description": "LivePage creation project with Supabase integration",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "netlify dev",
+    "build": "echo \"No build step required\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.30.0",
+    "node-fetch": "^2.6.12",
+    "cookie": "^0.5.0"
+  },
+  "devDependencies": {},
+  "keywords": ["livepage", "supabase", "netlify"],
+  "author": "Isaiah",
+  "license": "MIT"
+}

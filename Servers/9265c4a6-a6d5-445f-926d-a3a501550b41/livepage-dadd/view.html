@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>LivePage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1115;
+      color: white;
+      padding: 20px;
+    }
+    .post {
+      background: #161a22;
+      padding: 14px;
+      border-radius: 12px;
+      margin-bottom: 14px;
+    }
+    small {
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+
+<h1 id="title"></h1>
+<div id="posts"></div>
+
+<script>
+const slug = location.pathname.split("/").pop();
+
+async function loadPage() {
+  const res = await fetch(`/.netlify/functions/getPage?slug=${slug}`);
+  const data = await res.json();
+
+  document.getElementById("title").textContent = data.page.title;
+
+  const posts = document.getElementById("posts");
+  posts.innerHTML = "";
+
+  data.posts.forEach(p => {
+    const div = document.createElement("div");
+    div.className = "post";
+    div.innerHTML = `
+      <p>${p.content}</p>
+      <small>${new Date(p.created_at).toLocaleString()}</small>
+    `;
+    posts.appendChild(div);
+  });
+}
+
+loadPage();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,757 @@
+@page "/forum"
+@using PackArcade2.Services
+@using System.Text.Json
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject PointsService PointsService
+@inject ILogger<Forum> Logger
+@inject IWebHostEnvironment Environment
+@inject GameService GameService
+@inject ProjectService ProjectService
+@inject PKStorageService PKStorageService
+@inject ServerConnectionService ServerConnectionService
+@inject BackendTracker BackendTracker
+
+<PageTitle>Community Forum - PackArcade2</PageTitle>
+
+<div class="forum-container">
+    <div class="forum-header">
+        <h1>💬 PackArcade2 Community Forum</h1>
+        <p>Discuss projects, share ideas, and collaborate with the PackArcade2 community</p>
+        <button class="create-topic-btn" @onclick="ShowCreateTopicModal">✍️ Create New Topic</button>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="header-stats">
+        <div class="stat-card">
+            <span class="stat-value">@totalUsers</span>
+            <span class="stat-label">Active Users</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@totalProjects</span>
+            <span class="stat-label">Projects</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@totalGames</span>
+            <span class="stat-label">Games</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-value">@activeBackends</span>
+            <span class="stat-label">Active Backends</span>
+        </div>
+    </div>
+
+    <!-- Categories -->
+    <div class="categories-section">
+        <div class="category-card @(currentCategory == "" ? "active" : "")" @onclick="() => SetCategory(null)">
+            <span class="category-icon">📋</span>
+            <span class="category-name">All Topics</span>
+            <span class="topic-count">@topics.Count</span>
+        </div>
+        <div class='category-card @(currentCategory == "announcements" ? "active" : "")' @onclick='() => SetCategory("announcements")'>
+            <span class="category-icon">📢</span>
+            <span class="category-name">Announcements</span>
+            <span class="topic-count">@topics.Count(t => t.Category == "announcements")</span>
+        </div>
+        <div class='category-card @(currentCategory == "projects" ? "active" : "")' @onclick='() => SetCategory("projects")'>
+            <span class="category-icon">🎮</span>
+            <span class="category-name">Projects</span>
+            <span class="topic-count">@topics.Count(t => t.Category == "projects")</span>
+        </div>
+        <div class='category-card @(currentCategory == "help" ? "active" : "")' @onclick='() => SetCategory("help")'>
+            <span class="category-icon">🆘</span>
+            <span class="category-name">Help & Support</span>
+            <span class="topic-count">@topics.Count(t => t.Category == "help")</span>
+        </div>
+        <div class='category-card @(currentCategory == "showcase" ? "active" : "")' @onclick='() => SetCategory("showcase")'>
+            <span class="category-icon">🏆</span>
+            <span class="category-name">Showcase</span>
+            <span class="topic-count">@topics.Count(t => t.Category == "showcase")</span>
+        </div>
+        <div class='category-card @(currentCategory == "feedback" ? "active" : "")' @onclick='() => SetCategory("feedback")'>
+            <span class="category-icon">💡</span>
+            <span class="category-name">Feedback</span>
+            <span class="topic-count">@topics.Count(t => t.Category == "feedback")</span>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="search-section">
+        <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search topics..." class="search-input" />
+        <button class="search-btn" @onclick="SearchTopics">🔍 Search</button>
+    </div>
+
+    <!-- Topics List -->
+    <div class="topics-section">
+        <div class="topics-header">
+            <div class="topic-info">Topics</div>
+            <div class="topic-replies">Replies</div>
+            <div class="topic-views">Views</div>
+            <div class="topic-last">Last Activity</div>
+        </div>
+
+        @if (filteredTopics.Count == 0)
+        {
+            <div class="empty-state">
+                <span class="empty-icon">📭</span>
+                <p>No topics found. Be the first to create a topic!</p>
+            </div>
+        }
+        else
+        {
+            @foreach (var topic in filteredTopics.OrderByDescending(t => t.Pinned).ThenByDescending(t => t.LastActivity))
+            {
+                <div class="topic-item @(topic.Pinned ? "pinned" : "")" @onclick="() => ViewTopic(topic.Id)">
+                    <div class="topic-main">
+                        @if (topic.Pinned)
+                        {
+                            <span class="pinned-badge">📌 Pinned</span>
+                        }
+                        @if (topic.Sticky)
+                        {
+                            <span class="sticky-badge">⭐ Sticky</span>
+                        }
+                        <div class="topic-title">@topic.Title</div>
+                        <div class="topic-meta">
+                            by <span class="topic-author">@topic.Author</span> in 
+                            <span class="topic-category">@GetCategoryName(topic.Category)</span>
+                            <span class="topic-time">@FormatTime(topic.CreatedAt)</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(topic.Preview))
+                        {
+                            <div class="topic-preview">@topic.Preview</div>
+                        }
+                    </div>
+                    <div class="topic-replies-count">@topic.Replies.Count</div>
+                    <div class="topic-views-count">@topic.Views</div>
+                    <div class="topic-last-activity">
+                        @if (topic.Replies.Any())
+                        {
+                            <div>@FormatTime(topic.Replies.Last().CreatedAt)</div>
+                            <div class="last-author">by @topic.Replies.Last().Author</div>
+                        }
+                        else
+                        {
+                            <div>@FormatTime(topic.CreatedAt)</div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Create Topic Modal -->
+    <div class="modal @(showCreateModal ? "show" : "")" id="createTopicModal">
+        <div class="modal-overlay" @onclick="CloseCreateModal"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create New Topic</h3>
+                <button class="close-btn" @onclick="CloseCreateModal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Title</label>
+                    <input @bind="newTopic.Title" class="form-input" placeholder="What's your topic about?" maxlength="200" />
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select @bind="newTopic.Category" class="form-select">
+                        <option value="general">General Discussion</option>
+                        <option value="announcements">Announcements</option>
+                        <option value="projects">Projects</option>
+                        <option value="help">Help & Support</option>
+                        <option value="showcase">Showcase</option>
+                        <option value="feedback">Feedback</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Content</label>
+                    <textarea @bind="newTopic.Content" class="form-textarea" rows="8" placeholder="Write your topic content here... Markdown supported"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="newTopic.Pinned" />
+                        Pin this topic (requires 500 points)
+                    </label>
+                    <small class="form-hint">Pinned topics stay at the top. Costs 500 points.</small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="newTopic.Sticky" />
+                        Sticky this topic (requires 300 points)
+                    </label>
+                    <small class="form-hint">Sticky topics are highlighted. Costs 300 points.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" @onclick="CloseCreateModal">Cancel</button>
+                <button class="btn-create" @onclick="CreateTopic" disabled="@isCreating">@(isCreating ? "Creating..." : "Create Topic")</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Topic Modal -->
+    <div class="modal @(showTopicModal ? "show" : "")" id="viewTopicModal">
+        <div class="modal-overlay" @onclick="CloseTopicModal"></div>
+        <div class="modal-content modal-large">
+            @if (selectedTopic != null)
+            {
+                <div class="modal-header">
+                    <h3>@selectedTopic.Title</h3>
+                    <button class="close-btn" @onclick="CloseTopicModal">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="topic-detail">
+                        <div class="topic-meta-detail">
+                            <span>Posted by <strong>@selectedTopic.Author</strong></span>
+                            <span>in <span class="category-badge">@GetCategoryName(selectedTopic.Category)</span></span>
+                            <span>@FormatTime(selectedTopic.CreatedAt)</span>
+                            <span>👁️ @selectedTopic.Views views</span>
+                        </div>
+                        <div class="topic-content">
+                            @MarkdownToHtml(selectedTopic.Content)
+                        </div>
+                    </div>
+
+                    <div class="replies-section">
+                        <h4>Replies (@selectedTopic.Replies.Count)</h4>
+                        @foreach (var reply in selectedTopic.Replies.OrderBy(r => r.CreatedAt))
+                        {
+                            <div class="reply-item">
+                                <div class="reply-header">
+                                    <strong>@reply.Author</strong>
+                                    <span class="reply-time">@FormatTime(reply.CreatedAt)</span>
+                                </div>
+                                <div class="reply-content">
+                                    @MarkdownToHtml(reply.Content)
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="reply-form">
+                        <h4>Write a Reply</h4>
+                        <textarea @bind="newReply" class="form-textarea" rows="4" placeholder="Write your reply..."></textarea>
+                        <button class="btn-reply" @onclick="AddReply" disabled="@isReplying">@(isReplying ? "Posting..." : "Post Reply")</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Ecosystem Showcase (Collapsible) -->
+    <div class="ecosystem-section">
+        <div class="ecosystem-header" @onclick="ToggleEcosystem">
+            <h2>🚀 PackArcade2 Ecosystem</h2>
+            <span class="toggle-icon">@(showEcosystem ? "▼" : "▶")</span>
+        </div>
+        @if (showEcosystem)
+        {
+            <div class="services-grid">
+                <div class="service-card" @onclick='() => NavigateTo("/editor")'>
+                    <div class="service-icon">📝</div>
+                    <h3>Code Editor</h3>
+                    <p>Full-featured code editor with live preview and sandboxed execution</p>
+                    <div class="service-features">
+                        <span>⚡ Real-time execution</span>
+                        <span>🛡️ Windows Sandbox</span>
+                    </div>
+                    <button class="service-btn">Launch →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/pk-storage")'>
+                    <div class="service-icon">💾</div>
+                    <h3>PK Storage</h3>
+                    <p>1TB free cloud storage with SQL database and REST API</p>
+                    <div class="service-features">
+                        <span>🗄️ SQLite</span>
+                        <span>🔒 RLS Protection</span>
+                    </div>
+                    <button class="service-btn">Access →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/server-connection")'>
+                    <div class="service-icon">🌐</div>
+                    <h3>Server Connection</h3>
+                    <p>Deploy servers with 24-hour security scanning</p>
+                    <div class="service-features">
+                        <span>🛡️ Malware scan</span>
+                        <span>📜 PowerShell scripts</span>
+                    </div>
+                    <button class="service-btn">Deploy →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/runner")'>
+                    <div class="service-icon">🏃</div>
+                    <h3>Martin's Runner</h3>
+                    <p>Run destructive commands safely in Windows Sandbox VM</p>
+                    <div class="service-features">
+                        <span>🪟 Windows Sandbox</span>
+                        <span>⭐ Earn points</span>
+                    </div>
+                    <button class="service-btn">Play →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/ai")'>
+                    <div class="service-icon">🤖</div>
+                    <h3>AI Assistant</h3>
+                    <p>AI-powered code generation and debugging help</p>
+                    <div class="service-features">
+                        <span>✨ Code generation</span>
+                        <span>🐛 Debugging help</span>
+                    </div>
+                    <button class="service-btn">Ask AI →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/points")'>
+                    <div class="service-icon">⭐</div>
+                    <h3>Points System</h3>
+                    <p>Earn points, extend projects, and generate API keys</p>
+                    <div class="service-features">
+                        <span>🎮 2 points/game</span>
+                        <span>🔑 API keys (500 pts)</span>
+                    </div>
+                    <button class="service-btn">View →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/reset-ip-console")'>
+                    <div class="service-icon">🔒</div>
+                    <h3>Security Console</h3>
+                    <p>IP whitelist management and admin controls</p>
+                    <div class="service-features">
+                        <span>🛡️ IP whitelist</span>
+                        <span>🖥️ VM environment</span>
+                    </div>
+                    <button class="service-btn">Open →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/my-games")'>
+                    <div class="service-icon">🎮</div>
+                    <h3>My Projects</h3>
+                    <p>Manage all your games and projects</p>
+                    <div class="service-features">
+                        <span>📤 Upload games</span>
+                        <span>✏️ Edit projects</span>
+                    </div>
+                    <button class="service-btn">View →</button>
+                </div>
+
+                <div class="service-card" @onclick='() => NavigateTo("/templates")'>
+                    <div class="service-icon">📋</div>
+                    <h3>Project Templates</h3>
+                    <p>Start quickly with pre-built templates</p>
+                    <div class="service-features">
+                        <span>⚛️ React</span>
+                        <span>🐍 Flask</span>
+                    </div>
+                    <button class="service-btn">Browse →</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Quick Links -->
+    <div class="quick-links">
+        <h2>🔗 Quick Access</h2>
+        <div class="links-grid">
+            <a href="/editor" class="quick-link">📝 Editor</a>
+            <a href="/pk-storage" class="quick-link">💾 PK Storage</a>
+            <a href="/server-connection" class="quick-link">🌐 Deploy Server</a>
+            <a href="/runner" class="quick-link">🏃 Runner</a>
+            <a href="/points" class="quick-link">⭐ Points</a>
+            <a href="/ai" class="quick-link">🤖 AI</a>
+            <a href="/my-games" class="quick-link">🎮 Projects</a>
+            <a href="/templates" class="quick-link">📋 Templates</a>
+            <a href="/reset-ip-console" class="quick-link">🔒 Console</a>
+            <a href="/settings" class="quick-link">⚙️ Settings</a>
+        </div>
+    </div>
+</div>
+
+<style>
+    .forum-container { min-height: 100vh; background: linear-gradient(135deg, #0a0e1a 0%, #0f111a 100%); padding: 40px 20px; font-family: 'Segoe UI', sans-serif; }
+    .forum-header { text-align: center; margin-bottom: 40px; }
+    .forum-header h1 { color: #00ffaa; font-size: 48px; margin-bottom: 10px; text-shadow: 0 0 10px rgba(0,255,170,0.3); }
+    .forum-header p { color: #6c7293; margin-bottom: 20px; }
+    .create-topic-btn { background: linear-gradient(135deg, #00ffaa, #00cc88); color: #0a0e1a; border: none; padding: 12px 24px; border-radius: 50px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
+    .create-topic-btn:hover { transform: scale(1.05); }
+    .header-stats { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 30px; }
+    .stat-card { background: rgba(0,0,0,0.4); border-radius: 16px; padding: 15px 25px; text-align: center; border: 1px solid #2a2e3a; min-width: 100px; }
+    .stat-card .stat-value { font-size: 28px; font-weight: bold; color: #00ffaa; display: block; }
+    .stat-card .stat-label { font-size: 11px; color: #6c7293; }
+    .categories-section { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 30px; justify-content: center; }
+    .category-card { background: rgba(0,0,0,0.4); border: 1px solid #2a2e3a; border-radius: 12px; padding: 10px 18px; display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.2s; }
+    .category-card:hover, .category-card.active { background: rgba(0,255,170,0.1); border-color: #00ffaa; }
+    .category-icon { font-size: 18px; }
+    .category-name { color: #fff; }
+    .topic-count { background: #2a2e3a; padding: 2px 8px; border-radius: 20px; font-size: 11px; color: #00ffaa; }
+    .search-section { display: flex; gap: 10px; margin-bottom: 30px; max-width: 500px; margin-left: auto; margin-right: auto; }
+    .search-input { flex: 1; background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 12px; color: #fff; }
+    .search-input:focus { outline: none; border-color: #00ffaa; }
+    .search-btn { background: #2a2e3a; border: none; border-radius: 8px; padding: 12px 20px; color: #fff; cursor: pointer; }
+    .search-btn:hover { background: #00ffaa; color: #0a0e1a; }
+    .topics-section { background: rgba(0,0,0,0.4); border-radius: 16px; border: 1px solid #2a2e3a; overflow: hidden; margin-bottom: 40px; }
+    .topics-header { display: grid; grid-template-columns: 3fr 1fr 1fr 1.5fr; background: rgba(0,0,0,0.6); padding: 12px 20px; color: #6c7293; font-size: 12px; font-weight: 600; border-bottom: 1px solid #2a2e3a; }
+    .topic-item { display: grid; grid-template-columns: 3fr 1fr 1fr 1.5fr; padding: 16px 20px; border-bottom: 1px solid #2a2e3a; cursor: pointer; transition: background 0.2s; }
+    .topic-item:hover { background: rgba(0,255,170,0.05); }
+    .topic-item.pinned { background: rgba(255,193,7,0.05); }
+    .topic-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+    .topic-meta { font-size: 11px; color: #6c7293; display: flex; flex-wrap: wrap; gap: 8px; }
+    .topic-author { color: #00ffaa; }
+    .topic-category { color: #ffaa44; }
+    .topic-preview { font-size: 12px; color: #8a8ea0; margin-top: 6px; }
+    .pinned-badge, .sticky-badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-right: 8px; }
+    .pinned-badge { background: #ffaa44; color: #0a0e1a; }
+    .sticky-badge { background: #00ffaa; color: #0a0e1a; }
+    .topic-replies-count, .topic-views-count { font-size: 14px; color: #fff; text-align: center; align-self: center; }
+    .topic-last-activity { font-size: 11px; color: #6c7293; align-self: center; }
+    .last-author { font-size: 10px; color: #00ffaa; margin-top: 2px; }
+    .empty-state { text-align: center; padding: 60px; color: #6c7293; }
+    .empty-icon { font-size: 48px; display: block; margin-bottom: 16px; }
+    .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .modal.show { display: flex; }
+    .modal-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
+    .modal-content { position: relative; background: #0f111a; border: 1px solid #2a2e3a; border-radius: 16px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; z-index: 1001; }
+    .modal-large { max-width: 900px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #2a2e3a; }
+    .modal-header h3 { color: #00ffaa; margin: 0; }
+    .close-btn { background: none; border: none; font-size: 28px; color: #6c7293; cursor: pointer; }
+    .close-btn:hover { color: #ff4444; }
+    .modal-body { padding: 24px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; color: #fff; margin-bottom: 8px; font-weight: 500; }
+    .form-input, .form-select, .form-textarea { width: 100%; background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 12px; color: #fff; font-size: 14px; }
+    .form-textarea { resize: vertical; font-family: monospace; }
+    .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .form-hint { display: block; font-size: 11px; color: #6c7293; margin-top: 4px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; border-top: 1px solid #2a2e3a; }
+    .btn-cancel { background: #2a2e3a; border: none; padding: 10px 20px; border-radius: 8px; color: #fff; cursor: pointer; }
+    .btn-create, .btn-reply { background: linear-gradient(135deg, #00ffaa, #00cc88); border: none; padding: 10px 24px; border-radius: 8px; color: #0a0e1a; font-weight: bold; cursor: pointer; }
+    .topic-detail { margin-bottom: 30px; }
+    .topic-meta-detail { display: flex; flex-wrap: wrap; gap: 16px; padding-bottom: 16px; margin-bottom: 20px; border-bottom: 1px solid #2a2e3a; font-size: 13px; color: #6c7293; }
+    .category-badge { background: rgba(255,170,68,0.2); padding: 2px 8px; border-radius: 12px; color: #ffaa44; }
+    .topic-content { color: #ddd; line-height: 1.6; }
+    .topic-content pre { background: #1a1e2a; padding: 12px; border-radius: 8px; overflow-x: auto; }
+    .topic-content code { background: #1a1e2a; padding: 2px 6px; border-radius: 4px; }
+    .replies-section { margin-top: 30px; border-top: 1px solid #2a2e3a; padding-top: 20px; }
+    .reply-item { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .reply-header { display: flex; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #2a2e3a; }
+    .reply-time { font-size: 11px; color: #6c7293; }
+    .reply-form { margin-top: 20px; padding-top: 20px; border-top: 1px solid #2a2e3a; }
+    .ecosystem-section { margin-bottom: 40px; background: rgba(0,0,0,0.3); border-radius: 16px; border: 1px solid #2a2e3a; overflow: hidden; }
+    .ecosystem-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; cursor: pointer; background: rgba(0,0,0,0.4); }
+    .ecosystem-header h2 { color: #00ffaa; font-size: 24px; margin: 0; }
+    .toggle-icon { color: #00ffaa; font-size: 20px; }
+    .services-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; padding: 20px; }
+    .service-card { background: rgba(0,0,0,0.4); border: 1px solid #2a2e3a; border-radius: 12px; padding: 20px; cursor: pointer; transition: all 0.2s; }
+    .service-card:hover { transform: translateY(-3px); border-color: #00ffaa; background: rgba(0,255,170,0.05); }
+    .service-icon { font-size: 40px; margin-bottom: 12px; }
+    .service-card h3 { color: #fff; font-size: 18px; margin-bottom: 8px; }
+    .service-card p { color: #8a8ea0; font-size: 13px; margin-bottom: 12px; }
+    .service-features { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 15px; }
+    .service-features span { background: rgba(0,255,170,0.1); color: #00ffaa; padding: 3px 8px; border-radius: 12px; font-size: 10px; }
+    .service-btn { background: linear-gradient(135deg, #00ffaa, #00cc88); color: #0a0e1a; border: none; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; }
+    .quick-links { max-width: 1200px; margin: 0 auto; }
+    .quick-links h2 { color: #00ffaa; font-size: 24px; margin-bottom: 20px; border-left: 4px solid #00ffaa; padding-left: 15px; }
+    .links-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+    .quick-link { background: rgba(0,0,0,0.4); border: 1px solid #2a2e3a; border-radius: 10px; padding: 10px; text-align: center; color: #fff; text-decoration: none; font-size: 13px; transition: all 0.2s; }
+    .quick-link:hover { border-color: #00ffaa; background: rgba(0,255,170,0.1); }
+    @@media (max-width: 768px) { .topics-header { display: none; } .topic-item { grid-template-columns: 1fr; gap: 8px; } .services-grid { grid-template-columns: 1fr; } .forum-header h1 { font-size: 32px; } }
+</style>
+
+<script>
+    window.scrollToBottom = function() {
+        const modalBody = document.querySelector('#viewTopicModal .modal-body');
+        if (modalBody) modalBody.scrollTop = modalBody.scrollHeight;
+    };
+</script>
+
+@code {
+    private List<ForumTopic> topics = new();
+    private List<ForumTopic> filteredTopics = new();
+    private string searchQuery = "";
+    private string currentCategory = "";
+    private bool showCreateModal = false;
+    private bool showTopicModal = false;
+    private ForumTopic? selectedTopic = null;
+    private NewTopic newTopic = new();
+    private string newReply = "";
+    private bool isCreating = false;
+    private bool isReplying = false;
+    private string? clientIp;
+    private string dataPath = "";
+    private bool showEcosystem = true;
+    
+    // Stats
+    private int totalUsers = 0;
+    private int totalProjects = 0;
+    private int totalGames = 0;
+    private int totalServers = 0;
+    private int forumTopics = 0;
+    private int forumReplies = 0;
+    private int activeBackends = 0;
+    private double storageUsed = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        dataPath = Path.Combine(Environment.WebRootPath, "data", "forum");
+        Directory.CreateDirectory(dataPath);
+        
+        try
+        {
+            clientIp = await JSRuntime.InvokeAsync<string>("getClientIP") ?? "anonymous";
+        }
+        catch { clientIp = "anonymous"; }
+        
+        await LoadStats();
+        await LoadTopics();
+        filteredTopics = topics;
+    }
+
+    private void ToggleEcosystem()
+    {
+        showEcosystem = !showEcosystem;
+        StateHasChanged();
+    }
+
+    private async Task LoadStats()
+    {
+        try
+        {
+            var games = await GameService.GetAllGames();
+            totalGames = games?.Count ?? 0;
+            
+            var projectsPath = Path.Combine(Environment.WebRootPath, "projects");
+            if (Directory.Exists(projectsPath))
+                totalProjects = Directory.GetDirectories(projectsPath).Length;
+            
+            var backends = BackendTracker.GetAllBackends();
+            activeBackends = backends?.Count ?? 0;
+            
+            var pointsPath = Path.Combine(Environment.WebRootPath, "data", "Points");
+            if (Directory.Exists(pointsPath))
+                totalUsers = Directory.GetFiles(pointsPath, "user_*.json").Length;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load stats"); }
+    }
+
+    private async Task LoadTopics()
+    {
+        try
+        {
+            var topicsFile = Path.Combine(dataPath, "topics.json");
+            if (File.Exists(topicsFile))
+            {
+                var json = await File.ReadAllTextAsync(topicsFile);
+                topics = JsonSerializer.Deserialize<List<ForumTopic>>(json) ?? new();
+            }
+            else
+            {
+                topics = new List<ForumTopic>
+                {
+                    new ForumTopic
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Title = "Welcome to PackArcade2 Community!",
+                        Content = "Welcome to the official PackArcade2 community forum! This is a place to share your projects, get help, and connect with other developers.\n\n## Getting Started\n\n- Introduce yourself\n- Share your first project\n- Ask questions",
+                        Author = "System",
+                        Category = "announcements",
+                        CreatedAt = DateTime.Now.AddDays(-7),
+                        Pinned = true,
+                        Sticky = true,
+                        Views = 156,
+                        Replies = new List<ForumReply>
+                        {
+                            new ForumReply { Id = Guid.NewGuid().ToString(), Author = "PackArcade Team", Content = "Welcome everyone!", CreatedAt = DateTime.Now.AddDays(-6) }
+                        }
+                    }
+                };
+                await SaveTopics();
+            }
+            forumTopics = topics.Count;
+            forumReplies = topics.Sum(t => t.Replies.Count);
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load topics"); }
+    }
+
+    private async Task SaveTopics()
+    {
+        var topicsFile = Path.Combine(dataPath, "topics.json");
+        var json = JsonSerializer.Serialize(topics, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(topicsFile, json);
+    }
+
+    private void SetCategory(string? category) { currentCategory = category ?? ""; FilterTopics(); }
+    private void SearchTopics() { FilterTopics(); }
+    private void FilterTopics()
+    {
+        filteredTopics = topics
+            .Where(t => (string.IsNullOrEmpty(currentCategory) || t.Category == currentCategory) &&
+                        (string.IsNullOrEmpty(searchQuery) || 
+                         t.Title.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                         t.Content.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        StateHasChanged();
+    }
+
+    private string GetCategoryName(string category) => category switch
+    {
+        "announcements" => "📢 Announcements",
+        "projects" => "🎮 Projects",
+        "help" => "🆘 Help",
+        "showcase" => "🏆 Showcase",
+        "feedback" => "💡 Feedback",
+        _ => "💬 General"
+    };
+
+    private string FormatTime(DateTime time)
+    {
+        var diff = DateTime.Now - time;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return time.ToString("MMM d");
+    }
+
+    private MarkupString MarkdownToHtml(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown)) return new MarkupString("");
+        var html = markdown;
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"^### (.*?)$", "<h3>$1</h3>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"^## (.*?)$", "<h2>$1</h2>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"^# (.*?)$", "<h1>$1</h1>", System.Text.RegularExpressions.RegexOptions.Multiline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\*(.*?)\*", "<em>$1</em>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"```(.*?)```", "<pre><code>$1</code></pre>", System.Text.RegularExpressions.RegexOptions.Singleline);
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"`(.*?)`", "<code>$1</code>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\[(.*?)\]\((.*?)\)", "<a href=\"$2\" target=\"_blank\">$1</a>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\n\n", "</p><p>");
+        html = $"<p>{html}</p>";
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\n", "<br/>");
+        return new MarkupString(html);
+    }
+
+    private void ShowCreateTopicModal() { newTopic = new NewTopic(); showCreateModal = true; StateHasChanged(); }
+    private void CloseCreateModal() { showCreateModal = false; StateHasChanged(); }
+
+    private async Task CreateTopic()
+    {
+        if (string.IsNullOrWhiteSpace(newTopic.Title)) { await ShowAlert("Please enter a title"); return; }
+        if (string.IsNullOrWhiteSpace(newTopic.Content)) { await ShowAlert("Please enter content"); return; }
+        
+        isCreating = true; StateHasChanged();
+        
+        try
+        {
+            if (newTopic.Pinned && !await PointsService.SpendPoints(clientIp ?? "anonymous", 500, "Pin forum topic"))
+            { await ShowAlert("Not enough points to pin topic! Need 500 points."); isCreating = false; return; }
+            
+            if (newTopic.Sticky && !await PointsService.SpendPoints(clientIp ?? "anonymous", 300, "Sticky forum topic"))
+            { await ShowAlert("Not enough points to sticky topic! Need 300 points."); isCreating = false; return; }
+            
+            var topic = new ForumTopic
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = newTopic.Title,
+                Content = newTopic.Content,
+                Author = clientIp ?? "anonymous",
+                Category = newTopic.Category,
+                Pinned = newTopic.Pinned,
+                Sticky = newTopic.Sticky,
+                CreatedAt = DateTime.Now,
+                LastActivity = DateTime.Now,
+                Views = 0,
+                Replies = new List<ForumReply>()
+            };
+            
+            topics.Insert(0, topic);
+            await SaveTopics();
+            await PointsService.AddPoints(clientIp ?? "anonymous", 10, "Created forum topic");
+            await ShowAlert("Topic created successfully! +10 points");
+            CloseCreateModal();
+            FilterTopics();
+        }
+        catch (Exception ex) { await ShowAlert($"Error: {ex.Message}"); }
+        finally { isCreating = false; StateHasChanged(); }
+    }
+
+    private async Task ViewTopic(string topicId)
+    {
+        var topic = topics.FirstOrDefault(t => t.Id == topicId);
+        if (topic == null) return;
+        selectedTopic = topic;
+        topic.Views++;
+        await SaveTopics();
+        showTopicModal = true;
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("scrollToBottom");
+    }
+
+    private void CloseTopicModal() { showTopicModal = false; selectedTopic = null; newReply = ""; StateHasChanged(); }
+
+    private async Task AddReply()
+    {
+        if (string.IsNullOrWhiteSpace(newReply)) { await ShowAlert("Please enter a reply"); return; }
+        if (selectedTopic == null) return;
+        
+        isReplying = true; StateHasChanged();
+        
+        try
+        {
+            var reply = new ForumReply
+            {
+                Id = Guid.NewGuid().ToString(),
+                Author = clientIp ?? "anonymous",
+                Content = newReply,
+                CreatedAt = DateTime.Now
+            };
+            
+            selectedTopic.Replies.Add(reply);
+            selectedTopic.LastActivity = DateTime.Now;
+            await SaveTopics();
+            await PointsService.AddPoints(clientIp ?? "anonymous", 2, "Replied to forum topic");
+            newReply = "";
+            StateHasChanged();
+            await JSRuntime.InvokeVoidAsync("scrollToBottom");
+        }
+        catch (Exception ex) { await ShowAlert($"Error: {ex.Message}"); }
+        finally { isReplying = false; StateHasChanged(); }
+    }
+
+    private void NavigateTo(string path) { Navigation.NavigateTo(path); }
+    private async Task ShowAlert(string message) => await JSRuntime.InvokeVoidAsync("alert", message);
+
+    private class ForumTopic
+    {
+        public string Id { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Content { get; set; } = "";
+        public string Author { get; set; } = "";
+        public string Category { get; set; } = "general";
+        public bool Pinned { get; set; }
+        public bool Sticky { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime LastActivity { get; set; }
+        public int Views { get; set; }
+        public List<ForumReply> Replies { get; set; } = new();
+        public string Preview => Content.Length > 150 ? Content[..150] + "..." : Content;
+    }
+
+    private class ForumReply
+    {
+        public string Id { get; set; } = "";
+        public string Author { get; set; } = "";
+        public string Content { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+    }
+
+    private class NewTopic
+    {
+        public string Title { get; set; } = "";
+        public string Content { get; set; } = "";
+        public string Category { get; set; } = "general";
+        public bool Pinned { get; set; }
+        public bool Sticky { get; set; }
+    }
+}

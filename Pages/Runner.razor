@@ -1,0 +1,819 @@
+@page "/runner"
+@using System.Diagnostics
+@using System.Text
+@using System.Runtime.InteropServices
+@inject IJSRuntime JSRuntime
+@inject IWebHostEnvironment Environment
+@inject PackArcade2.Services.PointsService PointsService
+
+<PageTitle>MARTIN'S RUNNER - CODE RUNNER</PageTitle>
+
+<div class="game-container">
+    <div class="game-header">
+        <div class="score-panel">
+            <div class="score">🏆 SCORE: <span id="scoreValue">0</span></div>
+            <div class="code-points">💀 CODE EXECUTED: <span id="codePoints">0</span></div>
+            <div class="speed">⚡ SPEED: <span id="speedLevel">1</span></div>
+        </div>
+        <div class="danger-meter">
+            <div class="danger-label">⚠️ VM CORRUPTION</div>
+            <div class="danger-bar">
+                <div class="danger-fill" id="dangerFill" style="width: 0%"></div>
+            </div>
+        </div>
+        <div id="vmButtons" style="display: none;">
+            <button id="launchVMBtn" class="vm-btn" onclick="launchVMBtnClick()">🖥️ LAUNCH VM</button>
+            <button id="restartBtn" class="restart-btn" onclick="location.reload()">🔄 RESTART GAME</button>
+        </div>
+    </div>
+
+    <div class="game-area">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div class="horror-terminal" id="horrorTerminal">
+            <div class="terminal-header">
+                <span>💀 WINDOWS SANDBOX VM</span>
+                <span class="blink">⚠️ REAL DESTRUCTIVE COMMANDS</span>
+            </div>
+            <div class="terminal-scroll" id="terminalScroll">
+                <div class="terminal-line">> WINDOWS SANDBOX INITIALIZED</div>
+                <div class="terminal-line">> FULL WINDOWS VM ISOLATION</div>
+                <div class="terminal-line">> MEMORY: DYNAMIC | CPU: HARDWARE VIRTUALIZATION</div>
+                <div class="terminal-line">> REAL COMMANDS RUN IN DISPOSABLE VM</div>
+                <div class="terminal-line">> VM DESTROYED ON EXIT</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        user-select: none;
+    }
+
+    .game-container {
+        min-height: 100vh;
+        background: #000000;
+        font-family: 'Courier New', monospace;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .game-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+        background: rgba(0,0,0,0.9);
+        backdrop-filter: blur(10px);
+        padding: 10px 20px;
+        border-bottom: 1px solid #ff0000;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .score-panel {
+        display: flex;
+        gap: 20px;
+        font-size: 14px;
+        font-weight: bold;
+    }
+
+    .score, .code-points, .speed {
+        color: #ff4444;
+        font-family: monospace;
+    }
+
+    .danger-meter {
+        flex: 1;
+        margin: 0 20px;
+        max-width: 300px;
+    }
+
+    .danger-label {
+        color: #ff0000;
+        font-size: 10px;
+        margin-bottom: 3px;
+    }
+
+    .danger-bar {
+        height: 4px;
+        background: #330000;
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .danger-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #ff4444, #ff0000);
+        width: 0%;
+        transition: width 0.3s ease;
+    }
+
+    .vm-btn, .restart-btn {
+        background: #00ffaa;
+        color: #000;
+        border: none;
+        padding: 5px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-family: monospace;
+        font-weight: bold;
+        margin-left: 10px;
+    }
+
+    .restart-btn {
+        background: #ff4444;
+        color: white;
+    }
+
+    .vm-btn:hover {
+        background: #00cc88;
+    }
+
+    .restart-btn:hover {
+        background: #ff0000;
+    }
+
+    .game-area {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(180deg, #0a0a0a 0%, #1a0a0a 100%);
+        cursor: none;
+    }
+
+    .horror-terminal {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(0,0,0,0.85);
+        border: 1px solid #ff0000;
+        border-radius: 5px;
+        font-family: monospace;
+        z-index: 20;
+        backdrop-filter: blur(5px);
+        pointer-events: none;
+        width: 550px;
+        max-width: 45vw;
+    }
+
+    .terminal-header {
+        background: #1a0000;
+        padding: 4px 8px;
+        border-bottom: 1px solid #ff0000;
+        display: flex;
+        justify-content: space-between;
+        font-size: 9px;
+        color: #ff4444;
+    }
+
+    .terminal-scroll {
+        height: 130px;
+        overflow-y: auto;
+        padding: 6px 8px;
+        font-size: 9px;
+        color: #88ff88;
+    }
+
+    .terminal-line {
+        margin: 2px 0;
+        font-family: monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 8px;
+    }
+
+    .terminal-line.error {
+        color: #ff8888;
+    }
+
+    .blink {
+        animation: blink 1s infinite;
+    }
+
+    @@keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+</style>
+
+<script>
+    (function() {
+        if (window.__runnerGameLoaded) return;
+        window.__runnerGameLoaded = true;
+        
+        let canvas, ctx;
+        let player = { x: 150, y: 0, width: 30, height: 30, vy: 0, grounded: true };
+        let obstacles = [];
+        let codeOrbs = [];
+        let camera = 0;
+        let animationId;
+        let dotNetRef;
+        let running = true;
+        let groundY = 0;
+
+        window.initRunnerGame = function(dotNet) {
+            dotNetRef = dotNet;
+            canvas = document.getElementById('gameCanvas');
+            if (!canvas) return;
+            
+            ctx = canvas.getContext('2d');
+            
+            function resize() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                groundY = canvas.height - 80;
+                player.y = groundY - player.height;
+            }
+            
+            resize();
+            window.addEventListener('resize', resize);
+            window.addEventListener('keydown', handleKey);
+            
+            running = true;
+            gameLoop();
+        };
+
+        function handleKey(e) {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                if (player.grounded) {
+                    player.vy = -10;
+                    player.grounded = false;
+                }
+            }
+        }
+
+        window.updateGameStats = function(score, codePoints, speed) {
+            const s = document.getElementById('scoreValue');
+            const c = document.getElementById('codePoints');
+            const sp = document.getElementById('speedLevel');
+            if (s) s.innerText = score;
+            if (c) c.innerText = codePoints;
+            if (sp) sp.innerText = speed;
+        };
+
+        window.updateDangerBar = function(percent) {
+            const fill = document.getElementById('dangerFill');
+            if (fill) fill.style.width = percent + '%';
+        };
+
+        window.addTerminalLine = function(message, isError) {
+            const term = document.getElementById('terminalScroll');
+            if (!term) return;
+            const line = document.createElement('div');
+            line.className = 'terminal-line' + (isError ? ' error' : '');
+            line.innerHTML = message;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+            while (term.children.length > 20) term.removeChild(term.firstChild);
+        };
+
+        window.gameOver = function(lastCommand) {
+            running = false;
+            if (animationId) cancelAnimationFrame(animationId);
+            document.getElementById('vmButtons').style.display = 'flex';
+        };
+        
+        window.launchVMBtnClick = function() {
+            if (window.launchVM) window.launchVM();
+        };
+
+        function gameLoop() {
+            if (!running) return;
+            update();
+            draw();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function update() {
+            if (!canvas) return;
+            
+            player.vy += 0.8;
+            player.y += player.vy;
+            
+            if (player.y + player.height >= groundY) {
+                player.y = groundY - player.height;
+                player.vy = 0;
+                player.grounded = true;
+            }
+            if (player.y <= 0) {
+                player.y = 0;
+                player.vy = 0;
+            }
+            
+            const speedEl = document.getElementById('speedLevel');
+            let currentSpeed = speedEl ? parseInt(speedEl.innerText) || 1 : 1;
+            let moveSpeed = 5 + (currentSpeed / 2);
+            
+            camera += moveSpeed / 2;
+            
+            if (Math.random() < 0.02) {
+                obstacles.push({
+                    x: canvas.width + camera,
+                    y: groundY - 30,
+                    width: 30,
+                    height: 30
+                });
+            }
+            
+            if (Math.random() < 0.03) {
+                codeOrbs.push({
+                    x: canvas.width + camera,
+                    y: groundY - 50 - Math.random() * 40,
+                    width: 20,
+                    height: 20
+                });
+            }
+            
+            for (let i = 0; i < obstacles.length; i++) {
+                obstacles[i].x -= moveSpeed;
+                if (obstacles[i].x + obstacles[i].width < 0) {
+                    obstacles.splice(i, 1);
+                    i--;
+                }
+            }
+            
+            for (let i = 0; i < codeOrbs.length; i++) {
+                codeOrbs[i].x -= moveSpeed;
+                if (codeOrbs[i].x + codeOrbs[i].width < 0) {
+                    codeOrbs.splice(i, 1);
+                    i--;
+                }
+            }
+            
+            for (let i = 0; i < obstacles.length; i++) {
+                if (player.x < obstacles[i].x + obstacles[i].width &&
+                    player.x + player.width > obstacles[i].x &&
+                    player.y < obstacles[i].y + obstacles[i].height &&
+                    player.y + player.height > obstacles[i].y) {
+                    if (dotNetRef) dotNetRef.invokeMethodAsync('OnPlayerDeath');
+                    running = false;
+                    return;
+                }
+            }
+            
+            for (let i = 0; i < codeOrbs.length; i++) {
+                if (player.x < codeOrbs[i].x + codeOrbs[i].width &&
+                    player.x + player.width > codeOrbs[i].x &&
+                    player.y < codeOrbs[i].y + codeOrbs[i].height &&
+                    player.y + player.height > codeOrbs[i].y) {
+                    codeOrbs.splice(i, 1);
+                    i--;
+                    if (dotNetRef) dotNetRef.invokeMethodAsync('OnCollectCode');
+                }
+            }
+        }
+
+        function draw() {
+            if (!ctx || !canvas) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#330000';
+            ctx.fillRect(0, groundY, canvas.width, 5);
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(0, groundY - 5, canvas.width, 5);
+            
+            ctx.strokeStyle = '#ff4444';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < canvas.width; i += 50) {
+                ctx.beginPath();
+                ctx.moveTo(i - (camera % 50), groundY - 10);
+                ctx.lineTo(i - (camera % 50) + 25, groundY);
+                ctx.stroke();
+            }
+            
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(player.x + 8, player.y + 8, 5, 5);
+            ctx.fillRect(player.x + 17, player.y + 8, 5, 5);
+            ctx.fillRect(player.x + 12, player.y + 18, 6, 6);
+            
+            ctx.fillStyle = '#aa0000';
+            for (let obs of obstacles) {
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                ctx.fillStyle = '#ff6600';
+                ctx.fillRect(obs.x + 5, obs.y + 5, obs.width - 10, obs.height - 10);
+                ctx.fillStyle = '#aa0000';
+            }
+            
+            for (let orb of codeOrbs) {
+                ctx.beginPath();
+                ctx.arc(orb.x + orb.width/2, orb.y + orb.height/2, orb.width/2, 0, Math.PI * 2);
+                ctx.fillStyle = '#00ffaa';
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px monospace';
+                ctx.fillText('λ', orb.x + 6, orb.y + 15);
+            }
+            
+            ctx.fillStyle = '#ff8888';
+            ctx.font = '12px monospace';
+            ctx.fillText('PRESS SPACE TO JUMP | COLLECT CODE ORBS', 20, 50);
+        }
+
+        window.cleanupRunnerGame = function() {
+            running = false;
+            window.removeEventListener('keydown', handleKey);
+            if (animationId) cancelAnimationFrame(animationId);
+        };
+    })();
+</script>
+
+@code {
+    private DotNetObjectReference<object>? dotNetRef;
+    private System.Timers.Timer? gameTimer;
+    private Random random = new Random();
+    private int score = 0;
+    private int codePoints = 0;
+    private int speed = 1;
+    private double dangerLevel = 0;
+    private bool isRunning = true;
+    private bool isInitialized = false;
+    private Process? currentSandboxProcess;
+    private string? currentSandboxPath;
+    private string lastExecutedCommand = "";
+    private string? clientIp;
+    
+    private List<string> dangerousCommands = new List<string>
+    {
+        "del /F /Q C:\\Windows\\System32\\*.*",
+        "format C: /Q /Y",
+        "rd /S /Q C:\\Windows\\System32",
+        "del /F /S /Q C:\\*.exe",
+        "reg delete HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion /f",
+        "bcdedit /delete {default} /f",
+        "vssadmin delete shadows /all /quiet",
+        "wmic process call create \"cmd.exe /c del /F /Q C:\\*.*\"",
+        "powershell Remove-Item -Path C:\\Windows\\* -Recurse -Force",
+        "attrib -r -s -h C:\\*.* /s /d",
+        "takeown /f C:\\Windows /r /d y",
+        "icacls C:\\Windows /grant Everyone:F /t",
+        "cipher /w:C:",
+        "fsutil usn deletejournal /d C:",
+        "wevtutil cl System",
+        "wevtutil cl Application",
+        "wevtutil cl Security",
+        "net stop winlogon",
+        "taskkill /f /im lsass.exe",
+        "sc delete TrustedInstaller"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            isInitialized = true;
+            dotNetRef = DotNetObjectReference.Create(this as object);
+            await JSRuntime.InvokeVoidAsync("initRunnerGame", dotNetRef);
+            
+            await JSRuntime.InvokeVoidAsync("eval", "window.launchVM = () => { DotNet.invokeMethodAsync('PackArcade2', 'LaunchVMSandbox'); }");
+            
+            // Get client IP for points
+            try
+            {
+                clientIp = await JSRuntime.InvokeAsync<string>("getClientIP") ?? "unknown";
+            }
+            catch { clientIp = "unknown"; }
+            
+            gameTimer = new System.Timers.Timer(16);
+            gameTimer.Elapsed += async (s, e) => await UpdateGame();
+            gameTimer.Start();
+            
+            await AddTerminalMessage("> WINDOWS SANDBOX VM ACTIVE");
+            await AddTerminalMessage("> Full Windows VM Isolation | Hardware Virtualization");
+            await AddTerminalMessage("> REAL DESTRUCTIVE COMMANDS EXECUTE IN DISPOSABLE VM");
+            await AddTerminalMessage("> VM is completely destroyed when closed");
+            await AddTerminalMessage("> Your system is 100% SAFE");
+            await AddTerminalMessage("> Collect code orbs to execute REAL destructive code in VM");
+            await AddTerminalMessage("> EARN POINTS for each code orb collected!");
+            await AddTerminalMessage("");
+            await AddTerminalMessage("[!] Windows Sandbox must be enabled in Windows Features", true);
+        }
+    }
+
+    private async Task UpdateGame()
+    {
+        if (!isRunning || !isInitialized) return;
+        
+        try
+        {
+            score++;
+            speed = 1 + (score / 500);
+            
+            await JSRuntime.InvokeVoidAsync("updateGameStats", score, codePoints, speed);
+            await JSRuntime.InvokeVoidAsync("updateDangerBar", dangerLevel * 100);
+        }
+        catch { }
+    }
+
+    private async Task AddTerminalMessage(string message, bool isError = false)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("addTerminalLine", message, isError);
+        }
+        catch { }
+    }
+
+    private async Task AddTerminalLineToUI(string line, bool isError = false)
+    {
+        if (!string.IsNullOrWhiteSpace(line))
+        {
+            await JSRuntime.InvokeVoidAsync("addTerminalLine", line, isError);
+        }
+    }
+
+    private async Task ExecuteRandomCode()
+    {
+        if (!isRunning || !isInitialized) return;
+        
+        try
+        {
+            int commandIndex = Math.Min(dangerousCommands.Count - 1, (int)(dangerLevel * dangerousCommands.Count));
+            string command = dangerousCommands[commandIndex];
+            lastExecutedCommand = command;
+            
+            double codeDanger = Math.Min(1.0, (speed / 20.0) + (random.NextDouble() * 0.3));
+            dangerLevel = Math.Min(1.0, dangerLevel + (codeDanger * 0.05));
+            int pointsEarned = (int)(codeDanger * 100);
+            codePoints += pointsEarned;
+            
+            // Award points for collecting code orbs (2 points per orb)
+            if (!string.IsNullOrEmpty(clientIp))
+            {
+                await PointsService.AddPoints(clientIp, 2, "Runner Game - Code Orb Collected");
+                await AddTerminalMessage($"[POINTS] +2 points added to your account! Total code orbs collected: {codePoints}");
+            }
+            
+            await AddTerminalMessage("");
+            await AddTerminalMessage($"═══════════════════════════════════════", true);
+            await AddTerminalMessage($"[WINDOWS SANDBOX] LAUNCHING VM...", true);
+            await AddTerminalMessage($"[WINDOWS SANDBOX] Executing destructive command:", true);
+            await AddTerminalMessage($"[WINDOWS SANDBOX] {command}", true);
+            await AddTerminalMessage($"[WINDOWS SANDBOX] Danger Level: {(codeDanger * 100):F0}% | Points: +{pointsEarned}");
+            
+            // Launch Windows Sandbox with the command
+            await ExecuteCommandInWindowsSandbox(command);
+            
+            await AddTerminalMessage($"[WINDOWS SANDBOX] VM launched - A full Windows OS is now running");
+            await AddTerminalMessage($"[WINDOWS SANDBOX] The destructive command is executing inside the VM");
+            await AddTerminalMessage($"VM CORRUPTION: {(dangerLevel * 100):F0}%");
+            await AddTerminalMessage($"═══════════════════════════════════════");
+            
+            if (dangerLevel >= 1.0)
+            {
+                await GameOver();
+            }
+        }
+        catch (Exception ex)
+        {
+            await AddTerminalMessage($"[ERROR] Sandbox execution failed: {ex.Message}", true);
+            await AddTerminalMessage("[ERROR] Make sure Windows Sandbox is enabled in Windows Features", true);
+        }
+    }
+
+    private async Task ExecuteCommandInWindowsSandbox(string command)
+    {
+        try
+        {
+            string sandboxConfigDir = Path.Combine(Path.GetTempPath(), "PackArcade2_WindowsSandbox", Guid.NewGuid().ToString());
+            Directory.CreateDirectory(sandboxConfigDir);
+            currentSandboxPath = sandboxConfigDir;
+            
+            string scriptPath = Path.Combine(sandboxConfigDir, "run_command.ps1");
+            string scriptContent = @"
+Write-Host '=========================================' -ForegroundColor Red
+Write-Host '  WINDOWS SANDBOX VM - DESTRUCTIVE MODE' -ForegroundColor Red
+Write-Host '=========================================' -ForegroundColor Red
+Write-Host ''
+Write-Host 'VM ID: ' + [Guid]::NewGuid().ToString()
+Write-Host 'Start Time: ' + (Get-Date)
+Write-Host 'Command: " + command.Replace("\"", "'") + @"'
+Write-Host ''
+Write-Host 'Executing destructive command...' -ForegroundColor Yellow
+Write-Host ''
+
+try {
+    $result = Invoke-Expression '" + command.Replace("'", "''") + @"' 2>&1
+    $result | Out-String
+} catch {
+    Write-Host 'Error: ' $_.Exception.Message -ForegroundColor Red
+}
+
+Write-Host ''
+Write-Host '=========================================' -ForegroundColor Red
+Write-Host '  VM WILL SELF-DESTRUCT ON CLOSE' -ForegroundColor Red
+Write-Host '=========================================' -ForegroundColor Red
+Write-Host ''
+Write-Host 'This is a full Windows operating system running in isolation.' -ForegroundColor Cyan
+Write-Host 'Your actual PC is completely safe.' -ForegroundColor Cyan
+Write-Host ''
+Write-Host 'Press any key to close this VM and destroy all evidence...' -ForegroundColor Yellow
+Read-Host
+";
+            await File.WriteAllTextAsync(scriptPath, scriptContent);
+            
+            string wsbPath = Path.Combine(sandboxConfigDir, "sandbox.wsb");
+            string wsbContent = @"<Configuration>
+  <VGpu>Disable</VGpu>
+  <Networking>Disable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>" + sandboxConfigDir + @"</HostFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -ExecutionPolicy Bypass -File C:\Users\WDAGUtilityAccount\Desktop\run_command.ps1</Command>
+  </LogonCommand>
+</Configuration>";
+            
+            await File.WriteAllTextAsync(wsbPath, wsbContent);
+            
+            await AddTerminalMessage($"[WINDOWS SANDBOX] Configuration created: {wsbPath}");
+            await AddTerminalMessage($"[WINDOWS SANDBOX] Launching Windows Sandbox VM...");
+            await AddTerminalMessage($"[WINDOWS SANDBOX] A full Windows operating system is starting...");
+            
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = wsbPath,
+                UseShellExecute = true,
+                CreateNoWindow = false
+            };
+            
+            currentSandboxProcess = Process.Start(startInfo);
+            
+            if (currentSandboxProcess != null)
+            {
+                await AddTerminalMessage($"[WINDOWS SANDBOX] VM Process ID: {currentSandboxProcess.Id}");
+                await AddTerminalMessage("[WINDOWS SANDBOX] A Windows Sandbox window should appear");
+                await AddTerminalMessage("[WINDOWS SANDBOX] This is a FULL Windows OS running in isolation");
+                await AddTerminalMessage("[WINDOWS SANDBOX] The destructive command will execute inside the VM");
+                await AddTerminalMessage("");
+                await AddTerminalMessage("⚠️ WARNING: The command WILL execute inside the VM!", true);
+                await AddTerminalMessage("⚠️ The VM is a full Windows operating system", true);
+                await AddTerminalMessage("⚠️ The VM will be completely destroyed after closing", true);
+                await AddTerminalMessage("⚠️ Your real system is 100% safe", true);
+            }
+            
+            _ = Task.Run(async () =>
+            {
+                if (currentSandboxProcess != null)
+                {
+                    await currentSandboxProcess.WaitForExitAsync();
+                    await InvokeAsync(async () =>
+                    {
+                        await AddTerminalMessage("[WINDOWS SANDBOX] VM closed - Entire OS destroyed");
+                        await AddTerminalMessage("[WINDOWS SANDBOX] All traces of execution removed");
+                        await CleanupSandbox();
+                    });
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            await AddTerminalMessage($"[WINDOWS SANDBOX ERROR] {ex.Message}", true);
+            await CleanupSandbox();
+        }
+    }
+    
+    private async Task CleanupSandbox()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(currentSandboxPath) && Directory.Exists(currentSandboxPath))
+            {
+                Directory.Delete(currentSandboxPath, true);
+                await AddTerminalMessage($"[WINDOWS SANDBOX] Cleanup complete: {currentSandboxPath}");
+            }
+        }
+        catch { }
+        currentSandboxPath = null;
+        currentSandboxProcess = null;
+    }
+    
+    private async Task GameOver()
+    {
+        isRunning = false;
+        gameTimer?.Stop();
+        
+        try
+        {
+            await AddTerminalMessage("");
+            await AddTerminalMessage("═══════════════════════════════════════", true);
+            await AddTerminalMessage("💀 VM OVERLOAD - SYSTEM CORRUPTED", true);
+            await AddTerminalMessage($"FINAL SCORE: {score}", true);
+            await AddTerminalMessage($"DESTRUCTIVE COMMANDS EXECUTED: {codePoints}", true);
+            await AddTerminalMessage($"VM CORRUPTION: 100%", true);
+            await AddTerminalMessage("");
+            await AddTerminalMessage("The code has corrupted the virtual machine.", true);
+            await AddTerminalMessage("Your actual system is completely safe.", true);
+            await AddTerminalMessage("");
+            
+            // Award bonus points for high score
+            if (!string.IsNullOrEmpty(clientIp) && score > 100)
+            {
+                int bonusPoints = score / 50;
+                await PointsService.AddPoints(clientIp, bonusPoints, "Runner Game - High Score Bonus");
+                await AddTerminalMessage($"[POINTS] High score bonus! +{bonusPoints} points added!");
+            }
+            
+            await AddTerminalMessage("Click LAUNCH VM to open Windows Sandbox", false);
+            await AddTerminalMessage("and see the destruction in a full Windows OS!", false);
+            
+            await JSRuntime.InvokeVoidAsync("gameOver", lastExecutedCommand);
+            
+            // Auto-launch the VM on game over
+            await Task.Delay(500);
+            await LaunchVMSandbox();
+        }
+        catch { }
+    }
+    
+    [JSInvokable]
+    public async Task LaunchVMSandbox()
+    {
+        await AddTerminalMessage("");
+        await AddTerminalMessage("═══════════════════════════════════════", true);
+        await AddTerminalMessage("[WINDOWS SANDBOX] Launching isolated Windows VM...", true);
+        await AddTerminalMessage($"[WINDOWS SANDBOX] Last destructive command: {lastExecutedCommand}", true);
+        await AddTerminalMessage("[WINDOWS SANDBOX] This is a FULL Windows operating system", true);
+        await AddTerminalMessage("[WINDOWS SANDBOX] Completely isolated from your real PC", true);
+        
+        if (!string.IsNullOrEmpty(lastExecutedCommand))
+        {
+            await ExecuteCommandInWindowsSandbox(lastExecutedCommand);
+        }
+        else
+        {
+            await AddTerminalMessage("[WINDOWS SANDBOX] Launching clean Windows environment...");
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "WindowsSandbox.exe",
+                    UseShellExecute = true,
+                    CreateNoWindow = false
+                };
+                currentSandboxProcess = Process.Start(startInfo);
+                await AddTerminalMessage("[WINDOWS SANDBOX] Windows Sandbox launched successfully!");
+                await AddTerminalMessage("[WINDOWS SANDBOX] Look for a new window with a full Windows desktop");
+            }
+            catch (Exception ex)
+            {
+                await AddTerminalMessage($"[WINDOWS SANDBOX ERROR] {ex.Message}", true);
+                await AddTerminalMessage("[WINDOWS SANDBOX] Make sure Windows Sandbox is enabled in Windows Features", true);
+                await AddTerminalMessage("[WINDOWS SANDBOX] Go to: Control Panel -> Programs -> Turn Windows Features on/off -> Check 'Windows Sandbox'", true);
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnPlayerDeath()
+    {
+        await GameOver();
+    }
+
+    [JSInvokable]
+    public async Task OnCollectCode()
+    {
+        if (!isRunning) return;
+        await ExecuteRandomCode();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        isRunning = false;
+        gameTimer?.Stop();
+        gameTimer?.Dispose();
+        dotNetRef?.Dispose();
+        
+        if (currentSandboxProcess != null && !currentSandboxProcess.HasExited)
+        {
+            try { currentSandboxProcess.Kill(); } catch { }
+            currentSandboxProcess.Dispose();
+        }
+        
+        await CleanupSandbox();
+        
+        try { await JSRuntime.InvokeVoidAsync("cleanupRunnerGame"); } catch { }
+    }
+}

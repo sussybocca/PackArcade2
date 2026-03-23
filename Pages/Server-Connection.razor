@@ -1,0 +1,1228 @@
+@page "/server-connection"
+@using PackArcade2.Services
+@using System.Text.Json
+@using System.Net.Http
+@using System.Text
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Server Connection - PackArcade2</PageTitle>
+
+<div class="sc-container">
+    <div class="sc-header">
+        <h1>🚀 SERVER CONNECTION</h1>
+        <p>Deploy your own server on PackArcade2 infrastructure | 24-Hour Security Scan | Live File Sync with Agent</p>
+    </div>
+
+    @if (!hasApiKey)
+    {
+        <div class="warning-card">
+            <div class="warning-icon">⚠️</div>
+            <h2>API Key Required</h2>
+            <p>You need a PK Storage API key to deploy servers.</p>
+            <button class="goto-pk-btn" @onclick="GoToPKStorage">Go to PK Storage →</button>
+        </div>
+    }
+    else
+    {
+        <div class="server-dashboard">
+            <!-- Server List -->
+            <div class="server-list-card">
+                <h3>📡 Your Servers</h3>
+                <button class="refresh-servers-btn" @onclick="LoadServers">🔄 Refresh</button>
+                
+                @if (isLoading)
+                {
+                    <div class="loading">Loading servers...</div>
+                }
+                else if (servers.Count == 0)
+                {
+                    <div class="empty-state">
+                        <span class="empty-icon">🚀</span>
+                        <p>No servers deployed yet. Click "Deploy New Server" to get started!</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="server-list">
+                        @foreach (var server in servers)
+                        {
+                            <div class="server-item">
+                                <div class="server-info">
+                                    <div class="server-name">📁 @server.ServerName</div>
+                                    <div class="server-id">ID: @server.ServerId</div>
+                                    <div class="server-url">
+                                        🌐 URL: <a href="@($"https://{server.ServerId}.packarcade.win")" target="_blank">@($"https://{server.ServerId}.packarcade.win")</a>
+                                    </div>
+                                    <div class="server-status">
+                                        Status: 
+                                        <span class="status-badge status-@(server.Status?.ToLower() ?? "pending")">@(server.Status ?? "Pending")</span>
+                                    </div>
+                                    <div class="server-scan">
+                                        Scan: 
+                                        <span class="scan-badge scan-@(server.ScanStatus?.ToLower() ?? "pending")">@(server.ScanStatus ?? "Pending")</span>
+                                    </div>
+                                    <div class="server-agent">
+                                        Agent: 
+                                        <span class="agent-badge @(server.HasAgent ? "connected" : "disconnected")">
+                                            @(server.HasAgent ? "🟢 Connected" : "⚫ Disconnected")
+                                        </span>
+                                    </div>
+                                    <div class="server-date">Deployed: @server.DeployedAt.ToString("yyyy-MM-dd HH:mm")</div>
+                                    @if (server.Pid.HasValue && server.Pid > 0)
+                                    {
+                                        <div class="server-pid">PID: @server.Pid</div>
+                                    }
+                                    @if (server.StartedAt.HasValue)
+                                    {
+                                        <div class="server-started">Started: @server.StartedAt.Value.ToString("HH:mm:ss")</div>
+                                    }
+                                    @if (!string.IsNullOrEmpty(server.ScanMessage))
+                                    {
+                                        <div class="server-message">⚠️ @server.ScanMessage</div>
+                                    }
+                                    @if (server.LastOutput != null && server.LastOutput.Any())
+                                    {
+                                        <div class="server-logs">
+                                            <details>
+                                                <summary>📋 Recent Logs</summary>
+                                                @foreach (var log in server.LastOutput.TakeLast(5))
+                                                {
+                                                    <div class="log-line">@log</div>
+                                                }
+                                            </details>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="server-actions">
+                                    @if (server.Status == "Running")
+                                    {
+                                        <button class="stop-server-btn" @onclick="() => StopServer(server.ServerId)">⏹️ Stop</button>
+                                        <button class="restart-server-btn" @onclick="() => RestartServer(server.ServerId)">🔄 Restart</button>
+                                    }
+                                    else if (server.Status == "Stopped" || server.Status == "Error")
+                                    {
+                                        <button class="start-server-btn" @onclick="() => StartServer(server.ServerId)">▶️ Start</button>
+                                    }
+                                    @if (server.Status == "Active" || server.Status == "Running")
+                                    {
+                                        <button class="download-script-btn" @onclick="() => DownloadScript(server.ServerId, server.ServerName)">📜 Download Script</button>
+                                        <button class="download-agent-btn" @onclick="() => DownloadAgentScript(server.ServerId, server.ServerName)">🤖 Download Agent</button>
+                                        <button class="update-server-btn" @onclick="() => TriggerUpdate(server.ServerId)">🔄 Update</button>
+                                    }
+                                    @if (server.ScanStatus == "Quarantined")
+                                    {
+                                        <div class="quarantine-warning">⛔ Server Quarantined - Malware Detected</div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Deploy New Server -->
+            <div class="deploy-card">
+                <h3>🚀 Deploy New Server</h3>
+                <div class="deploy-form">
+                    <input @bind="newServerName" placeholder="Server Name" class="server-input" />
+                    
+                    <div class="config-section">
+                        <h4>Dependencies</h4>
+                        <label>
+                            <input type="checkbox" @bind="installNode" />
+                            Install Node.js
+                        </label>
+                        <label>
+                            <input type="checkbox" @bind="installPython" />
+                            Install Python
+                        </label>
+                        <label>
+                            <input type="checkbox" @bind="installPhp" />
+                            Install PHP
+                        </label>
+                    </div>
+                    
+                    <div class="config-section">
+                        <h4>Startup Configuration</h4>
+                        <input @bind="startCommand" placeholder="Start command (e.g., node server.js)" class="server-input" />
+                        <input @bind="port" type="number" placeholder="Port (default: 3000)" class="server-input" />
+                    </div>
+                    
+                    <div class="config-section">
+                        <h4>Upload Server Files</h4>
+                       <input type="file" id="serverFileInput" accept=".zip" class="file-input" />
+                        <button class="upload-file-btn" @onclick="TriggerFileUpload">📁 Select ZIP File</button>
+                        @if (!string.IsNullOrEmpty(selectedFileName))
+                        {
+                            <div class="selected-file">Selected: @selectedFileName</div>
+                        }
+                    </div>
+                    
+                    <button class="deploy-btn" @onclick="DeployServer" disabled="@isDeploying">
+                        @(isDeploying ? "Deploying..." : "🚀 Deploy Server")
+                    </button>
+                </div>
+            </div>
+
+            <!-- Agent Info Card -->
+            <div class="agent-info-card">
+                <h3>🤖 PackArcade2 Agent</h3>
+                <p>Run the Agent script on your local machine for live file sync and real-time updates!</p>
+                <div class="agent-features">
+                    <div class="agent-feature">
+                        <span class="feature-icon">🔄</span>
+                        <span>Real-time file sync between your local machine and cloud server</span>
+                    </div>
+                    <div class="agent-feature">
+                        <span class="feature-icon">📁</span>
+                        <span>Automatic file watcher - changes sync instantly</span>
+                    </div>
+                    <div class="agent-feature">
+                        <span class="feature-icon">🔒</span>
+                        <span>Secure WebSocket connection with admin privileges</span>
+                    </div>
+                    <div class="agent-feature">
+                        <span class="feature-icon">⚡</span>
+                        <span>Live development - edit locally, see changes on your subdomain immediately</span>
+                    </div>
+                </div>
+                <div class="agent-instructions">
+                    <h4>How to use:</h4>
+                    <ol>
+                        <li>Deploy a server (or use an existing one)</li>
+                        <li>Click "Download Agent" next to your server</li>
+                        <li>Save the .ps1 file to your local machine</li>
+                        <li>Right-click and select "Run with PowerShell" (as Administrator)</li>
+                        <li>The agent will connect and start syncing your local files</li>
+                        <li>Any changes you make locally will be instantly reflected on your live server!</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Info Card -->
+            <div class="info-card">
+                <h3>ℹ️ How It Works</h3>
+                <ul>
+                    <li><strong>1. Upload</strong> - Upload your server files as a ZIP</li>
+                    <li><strong>2. Scan</strong> - Quick malware scan and sandbox test</li>
+                    <li><strong>3. Deploy</strong> - Server files are stored on VHD storage</li>
+                    <li><strong>4. Script</strong> - Download Server-Connect.ps1 and run as Admin</li>
+                    <li><strong>5. Agent</strong> - Download Agent-Connect.ps1 for live file sync</li>
+                    <li><strong>6. Scan</strong> - 24-hour full security scan in background</li>
+                    <li><strong>7. Active</strong> - Server becomes active after passing scan</li>
+                </ul>
+                <div class="warning-note">
+                    ⚠️ The Server-Connect.ps1 and Agent-Connect.ps1 scripts require Administrator privileges to run!
+                </div>
+                <div class="info-note">
+                    💡 Your server will be accessible at: <strong>https://[server-id].packarcade.win</strong>
+                </div>
+                <div class="agent-note">
+                    🤖 The Agent script provides live file sync - edit files locally, see changes instantly on your live server!
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .sc-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0e1a 0%, #0f111a 100%);
+        padding: 40px 20px;
+        font-family: 'Segoe UI', monospace;
+    }
+
+    .sc-header {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+
+    .sc-header h1 {
+        color: #00ffaa;
+        font-size: 48px;
+        margin-bottom: 10px;
+        text-shadow: 0 0 10px rgba(0,255,170,0.3);
+    }
+
+    .sc-header p {
+        color: #6c7293;
+        font-size: 16px;
+    }
+
+    .warning-card {
+        background: rgba(255,170,0,0.2);
+        border: 1px solid #ffaa44;
+        border-radius: 16px;
+        padding: 30px;
+        text-align: center;
+        max-width: 500px;
+        margin: 0 auto;
+    }
+
+    .warning-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+    }
+
+    .warning-card h2 {
+        color: #ffaa44;
+        margin-bottom: 16px;
+    }
+
+    .warning-card p {
+        color: #aaa;
+        margin-bottom: 24px;
+    }
+
+    .goto-pk-btn {
+        background: #00ffaa;
+        color: #0a0e1a;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .server-dashboard {
+        max-width: 1000px;
+        margin: 0 auto;
+    }
+
+    .server-list-card, .deploy-card, .agent-info-card, .info-card {
+        background: rgba(0,0,0,0.4);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 24px;
+        border: 1px solid #2a2e3a;
+    }
+
+    .server-list-card h3, .deploy-card h3, .agent-info-card h3, .info-card h3 {
+        color: #00ffaa;
+        margin-bottom: 16px;
+    }
+
+    .refresh-servers-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+        margin-bottom: 16px;
+    }
+
+    .server-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .server-item {
+        background: rgba(0,0,0,0.3);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .server-info {
+        flex: 1;
+    }
+
+    .server-name {
+        font-size: 18px;
+        font-weight: bold;
+        color: #00ffaa;
+        margin-bottom: 4px;
+    }
+
+    .server-id {
+        font-size: 11px;
+        color: #6c7293;
+        font-family: monospace;
+        margin-bottom: 4px;
+    }
+
+    .server-url {
+        font-size: 12px;
+        margin: 4px 0;
+    }
+
+    .server-url a {
+        color: #88ffaa;
+        text-decoration: none;
+    }
+
+    .server-url a:hover {
+        text-decoration: underline;
+    }
+
+    .server-status, .server-scan, .server-agent, .server-date, .server-pid, .server-started {
+        font-size: 12px;
+        margin: 4px 0;
+    }
+
+    .agent-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .agent-badge.connected {
+        background: #44aa44;
+        color: white;
+    }
+
+    .agent-badge.disconnected {
+        background: #6c7293;
+        color: white;
+    }
+
+    .server-logs {
+        margin-top: 8px;
+        font-size: 11px;
+    }
+
+    .server-logs details {
+        background: rgba(0,0,0,0.3);
+        border-radius: 6px;
+        padding: 4px 8px;
+    }
+
+    .server-logs summary {
+        cursor: pointer;
+        color: #88ffaa;
+    }
+
+    .log-line {
+        font-family: monospace;
+        color: #88ff88;
+        font-size: 10px;
+        margin: 2px 0;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .status-badge, .scan-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .status-active, .status-running, .scan-clean {
+        background: #44aa44;
+        color: white;
+    }
+
+    .status-pending, .status-deployed, .scan-queued, .scan-scanning {
+        background: #ffaa44;
+        color: #0a0e1a;
+    }
+
+    .status-stopped {
+        background: #6c7293;
+        color: white;
+    }
+
+    .status-error {
+        background: #ff4444;
+        color: white;
+    }
+
+    .status-quarantined, .scan-quarantined {
+        background: #ff4444;
+        color: white;
+    }
+
+    .server-message {
+        color: #ffaa44;
+        font-size: 11px;
+        margin-top: 4px;
+    }
+
+    .server-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .start-server-btn, .stop-server-btn, .restart-server-btn, .download-agent-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    .start-server-btn:hover {
+        background: #44aa44;
+    }
+
+    .stop-server-btn:hover {
+        background: #ff4444;
+    }
+
+    .restart-server-btn:hover {
+        background: #ffaa44;
+        color: #0a0e1a;
+    }
+
+    .download-agent-btn:hover {
+        background: #00ffaa;
+        color: #0a0e1a;
+    }
+
+    .download-script-btn, .update-server-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    .download-script-btn:hover, .update-server-btn:hover {
+        background: #00ffaa;
+        color: #0a0e1a;
+    }
+
+    .quarantine-warning {
+        color: #ff4444;
+        font-size: 12px;
+        font-weight: bold;
+    }
+
+    .deploy-form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .server-input {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        border-radius: 8px;
+        padding: 12px;
+        color: #00ffaa;
+        width: 100%;
+    }
+
+    .config-section {
+        background: rgba(0,0,0,0.2);
+        padding: 12px;
+        border-radius: 8px;
+    }
+
+    .config-section h4 {
+        color: #88ffaa;
+        margin-bottom: 8px;
+    }
+
+    .config-section label {
+        display: block;
+        margin: 6px 0;
+        color: #ccc;
+    }
+
+    .upload-file-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+        width: 100%;
+        margin-bottom: 8px;
+    }
+
+    .selected-file {
+        font-size: 12px;
+        color: #88ff88;
+        margin-top: 8px;
+    }
+
+    .deploy-btn {
+        background: linear-gradient(135deg, #00ffaa, #00cc88);
+        color: #0a0e1a;
+        border: none;
+        padding: 14px;
+        border-radius: 8px;
+        font-weight: bold;
+        font-size: 16px;
+        cursor: pointer;
+        margin-top: 8px;
+    }
+
+    .deploy-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .agent-features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+        margin: 16px 0;
+    }
+
+    .agent-feature {
+        background: rgba(0,0,0,0.3);
+        padding: 10px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+    }
+
+    .feature-icon {
+        font-size: 20px;
+    }
+
+    .agent-instructions {
+        background: rgba(0,0,0,0.3);
+        padding: 16px;
+        border-radius: 8px;
+        margin-top: 12px;
+    }
+
+    .agent-instructions h4 {
+        color: #88ffaa;
+        margin-bottom: 12px;
+    }
+
+    .agent-instructions ol {
+        margin: 0;
+        padding-left: 20px;
+    }
+
+    .agent-instructions li {
+        margin: 8px 0;
+        color: #ccc;
+        font-size: 13px;
+    }
+
+    .info-card ul {
+        list-style: none;
+        padding: 0;
+    }
+
+    .info-card li {
+        padding: 8px 0;
+        border-bottom: 1px solid #2a2e3a;
+        color: #ccc;
+    }
+
+    .warning-note {
+        background: rgba(255,68,68,0.2);
+        border: 1px solid #ff4444;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 16px;
+        color: #ff8888;
+        font-size: 13px;
+    }
+
+    .info-note {
+        background: rgba(0,255,170,0.1);
+        border: 1px solid #00ffaa;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 16px;
+        color: #88ffaa;
+        font-size: 13px;
+    }
+
+    .agent-note {
+        background: rgba(0,255,170,0.05);
+        border: 1px solid #00ffaa;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 16px;
+        color: #88ffaa;
+        font-size: 13px;
+    }
+
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: #00ffaa;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #6c7293;
+    }
+
+    .empty-icon {
+        font-size: 48px;
+        display: block;
+        margin-bottom: 16px;
+    }
+
+    @@media (max-width: 768px) {
+        .sc-container {
+            padding: 20px;
+        }
+        
+        .server-item {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        
+        .server-actions {
+            width: 100%;
+        }
+        
+        .agent-features {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    private bool hasApiKey = false;
+    private string apiKey = "";
+    private bool isLoading = false;
+    private bool isDeploying = false;
+    private List<UserServer> servers = new();
+    private string newServerName = "";
+    private bool installNode = false;
+    private bool installPython = false;
+    private bool installPhp = false;
+    private string startCommand = "";
+    private int port = 3000;
+    private byte[]? serverFileData;
+    private string selectedFileName = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                apiKey = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "pk_api_key");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    hasApiKey = true;
+                    await LoadServers();
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"OnAfterRenderAsync error: {ex.Message}");
+            }
+        }
+    }
+
+    private void GoToPKStorage()
+    {
+        Navigation.NavigateTo("/pk-storage");
+    }
+
+    private async Task LoadServers()
+    {
+        if (string.IsNullOrEmpty(apiKey)) return;
+        
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync("http://localhost:5000/api/server-connection/list");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                servers = JsonSerializer.Deserialize<List<UserServer>>(json) ?? new();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"LoadServers failed: {response.StatusCode} - {errorContent}");
+                await ShowAlert($"Failed to load servers: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LoadServers error: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            await ShowAlert($"Error loading servers: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeployServer()
+    {
+        if (string.IsNullOrEmpty(newServerName))
+        {
+            await ShowAlert("Please enter a server name");
+            return;
+        }
+        
+        var hasFile = await JSRuntime.InvokeAsync<bool>("eval", "document.getElementById('serverFileInput').files.length > 0");
+        
+        if (!hasFile)
+        {
+            await ShowAlert("Please select a ZIP file containing your server");
+            return;
+        }
+        
+        isDeploying = true;
+        StateHasChanged();
+        
+        try
+        {
+            var config = new ServerConfig
+            {
+                InstallNode = installNode,
+                InstallPython = installPython,
+                InstallPhp = installPhp,
+                StartCommand = startCommand,
+                Port = port
+            };
+            
+            var configJson = JsonSerializer.Serialize(config);
+            
+            var result = await JSRuntime.InvokeAsync<DeploymentResult>("deployServerDirect", 
+                apiKey, newServerName, configJson);
+            
+            if (result != null && result.Success)
+            {
+                await ShowAlert($"Server deployed! Security scan queued.\n\nServer URL: {result.ServerUrl}");
+                
+                if (!string.IsNullOrEmpty(result.ScriptContent))
+                {
+                    await DownloadScriptContent(result.ScriptContent, newServerName);
+                }
+                
+                if (!string.IsNullOrEmpty(result.AgentScriptContent))
+                {
+                    await DownloadAgentScriptContent(result.AgentScriptContent, newServerName);
+                }
+                
+                await LoadServers();
+                
+                newServerName = "";
+                serverFileData = null;
+                selectedFileName = "";
+                
+                await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('serverFileInput').value = ''");
+            }
+            else
+            {
+                await ShowAlert($"Deployment failed: {result?.Message ?? "Unknown error"}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DeployServer error: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            await ShowAlert($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartServer(string serverId)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.PostAsync($"http://localhost:5000/api/server-connection/start/{serverId}", null);
+            var result = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                await ShowAlert($"Server started successfully!\n{result}");
+                await LoadServers();
+            }
+            else
+            {
+                await ShowAlert($"Failed to start server: {result}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowAlert($"Error starting server: {ex.Message}");
+        }
+    }
+
+    private async Task StopServer(string serverId)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.PostAsync($"http://localhost:5000/api/server-connection/stop/{serverId}", null);
+            var result = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                await ShowAlert($"Server stopped successfully!\n{result}");
+                await LoadServers();
+            }
+            else
+            {
+                await ShowAlert($"Failed to stop server: {result}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowAlert($"Error stopping server: {ex.Message}");
+        }
+    }
+
+    private async Task RestartServer(string serverId)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.PostAsync($"http://localhost:5000/api/server-connection/restart/{serverId}", null);
+            var result = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                await ShowAlert($"Server restarted successfully!\n{result}");
+                await LoadServers();
+            }
+            else
+            {
+                await ShowAlert($"Failed to restart server: {result}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowAlert($"Error restarting server: {ex.Message}");
+        }
+    }
+
+    private async Task DownloadScript(string serverId, string serverName)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync($"http://localhost:5000/api/server-connection/download/{serverId}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var fileData = await response.Content.ReadAsByteArrayAsync();
+                var scriptName = $"{serverName}_Server-Connect.ps1";
+                await JSRuntime.InvokeVoidAsync("saveAsFile", scriptName, Convert.ToBase64String(fileData));
+                await ShowAlert($"Server script downloaded: {scriptName}");
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"DownloadScript failed: {response.StatusCode} - {errorContent}");
+                await ShowAlert($"Failed to download script: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DownloadScript error: {ex.Message}");
+            await ShowAlert($"Error downloading script: {ex.Message}");
+        }
+    }
+
+    private async Task DownloadAgentScript(string serverId, string serverName)
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync($"http://localhost:5000/api/server-connection/download-agent/{serverId}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var fileData = await response.Content.ReadAsByteArrayAsync();
+                var scriptName = $"{serverName}_Agent-Connect.ps1";
+                await JSRuntime.InvokeVoidAsync("saveAsFile", scriptName, Convert.ToBase64String(fileData));
+                await ShowAlert($"Agent script downloaded: {scriptName}");
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"DownloadAgentScript failed: {response.StatusCode} - {errorContent}");
+                await ShowAlert($"Failed to download agent script: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DownloadAgentScript error: {ex.Message}");
+            await ShowAlert($"Error downloading agent script: {ex.Message}");
+        }
+    }
+
+    private async Task DownloadScriptContent(string scriptContent, string serverName)
+    {
+        try
+        {
+            var scriptName = $"{serverName}_Server-Connect.ps1";
+            var bytes = Encoding.UTF8.GetBytes(scriptContent);
+            await JSRuntime.InvokeVoidAsync("saveAsFile", scriptName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DownloadScriptContent error: {ex.Message}");
+        }
+    }
+
+    private async Task DownloadAgentScriptContent(string scriptContent, string serverName)
+    {
+        try
+        {
+            var scriptName = $"{serverName}_Agent-Connect.ps1";
+            var bytes = Encoding.UTF8.GetBytes(scriptContent);
+            await JSRuntime.InvokeVoidAsync("saveAsFile", scriptName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DownloadAgentScriptContent error: {ex.Message}");
+        }
+    }
+
+    private async Task TriggerFileUpload()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('serverFileInput').click()");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"TriggerFileUpload error: {ex.Message}");
+            await ShowAlert("Could not open file dialog");
+        }
+    }
+
+    private async Task OnServerFileSelected(ChangeEventArgs e)
+    {
+        try
+        {
+            Console.WriteLine("========================================");
+            Console.WriteLine("FILE SELECTION STARTED");
+            Console.WriteLine($"Timestamp: {DateTime.Now:HH:mm:ss.fff}");
+            Console.WriteLine($"Event value: {e.Value}");
+            
+            var fileSize = await JSRuntime.InvokeAsync<long>("eval", "document.getElementById('serverFileInput').files[0]?.size || 0");
+            Console.WriteLine($"File size: {fileSize} bytes ({fileSize / 1024 / 1024:F2} MB)");
+            
+            if (fileSize > 1024 * 1024)
+            {
+                string errorMsg = $"FILE TOO LARGE: {fileSize / 1024 / 1024:F2} MB exceeds the 1MB limit.\nAlternative: Click 'Deploy Server' directly - it handles large files.";
+                Console.WriteLine($"ERROR: {errorMsg}");
+                await ShowAlert($"❌ {errorMsg}");
+                serverFileData = null;
+                selectedFileName = "";
+                return;
+            }
+            
+            selectedFileName = await JSRuntime.InvokeAsync<string>("getFileName", "serverFileInput");
+            Console.WriteLine($"getFileName result: '{selectedFileName}'");
+            
+            if (string.IsNullOrEmpty(selectedFileName))
+            {
+                string errorMsg = "No file selected - getFileName returned empty or null";
+                Console.WriteLine($"ERROR: {errorMsg}");
+                await ShowAlert(errorMsg);
+                return;
+            }
+            
+            Console.WriteLine($"Selected file: {selectedFileName}");
+            
+            var connectionQuality = await JSRuntime.InvokeAsync<string>("eval", "navigator.connection ? navigator.connection.downlink + ' Mbps' : 'unknown'");
+            Console.WriteLine($"Network speed: {connectionQuality}");
+            
+            Console.WriteLine("Attempting to read file with readFileFromInput...");
+            var startTime = DateTime.Now;
+            var readTask = JSRuntime.InvokeAsync<byte[]>("readFileFromInput", "serverFileInput").AsTask();
+            
+            double estimatedSeconds = fileSize / (1024 * 1024) / 2;
+            int timeoutSeconds = Math.Max(30, (int)Math.Ceiling(estimatedSeconds * 2));
+            
+            Console.WriteLine($"File size: {fileSize} bytes, Estimated transfer time: {estimatedSeconds:F1}s, Using timeout: {timeoutSeconds}s");
+            
+            var timeoutTask = Task.Delay(timeoutSeconds * 1000);
+            var completedTask = await Task.WhenAny(readTask, timeoutTask);
+            var elapsed = DateTime.Now - startTime;
+            
+            if (completedTask == readTask)
+            {
+                var fileData = await readTask;
+                Console.WriteLine($"File read completed. Data length: {fileData?.Length ?? 0} bytes, Time: {elapsed.TotalSeconds:F1}s");
+                
+                if (fileData != null && fileData.Length > 0)
+                {
+                    serverFileData = fileData;
+                    await ShowAlert($"✅ File ready: {selectedFileName} ({serverFileData.Length:N0} bytes)\n⏱️ Transfer time: {elapsed.TotalSeconds:F1} seconds");
+                    Console.WriteLine("SUCCESS: File loaded successfully");
+                }
+                else
+                {
+                    string errorMsg = $"File read returned empty data (size: {fileData?.Length ?? 0})";
+                    Console.WriteLine($"ERROR: {errorMsg}");
+                    await ShowAlert($"❌ {errorMsg}");
+                    serverFileData = null;
+                    selectedFileName = "";
+                }
+            }
+            else
+            {
+                string errorMsg = $"FILE READ TIMEOUT after {timeoutSeconds} seconds for file: {selectedFileName}\n" +
+                                 $"File size: {fileSize / 1024 / 1024:F2} MB\n" +
+                                 $"Network speed: {connectionQuality}\n" +
+                                 $"Elapsed time: {elapsed.TotalSeconds:F1} seconds\n" +
+                                 $"Solution: Use 'Deploy Server' button directly - it uploads via HTTP POST and can handle large files.";
+                Console.WriteLine($"ERROR: {errorMsg}");
+                await ShowAlert($"❌ {errorMsg}");
+                serverFileData = null;
+                selectedFileName = "";
+            }
+        }
+        catch (OperationCanceledException ex)
+        {
+            string errorMsg = $"CANCELLED: {ex.Message}\nStack: {ex.StackTrace}";
+            Console.WriteLine($"CANCELLED: {errorMsg}");
+            await ShowAlert($"❌ {errorMsg}");
+            serverFileData = null;
+            selectedFileName = "";
+        }
+        catch (Exception ex)
+        {
+            string fullError = $"Exception Type: {ex.GetType().FullName}\n" +
+                              $"Message: {ex.Message}\n" +
+                              $"Stack Trace: {ex.StackTrace}";
+            
+            if (ex.InnerException != null)
+            {
+                fullError += $"\n\nINNER EXCEPTION:\n" +
+                            $"Type: {ex.InnerException.GetType().FullName}\n" +
+                            $"Message: {ex.InnerException.Message}\n" +
+                            $"Stack: {ex.InnerException.StackTrace}";
+            }
+            
+            Console.WriteLine($"EXCEPTION DETAILS:\n{fullError}");
+            await ShowAlert($"❌ ERROR:\n\n{fullError}");
+            serverFileData = null;
+            selectedFileName = "";
+        }
+        finally
+        {
+            Console.WriteLine("FILE SELECTION ENDED");
+            Console.WriteLine("========================================");
+            StateHasChanged();
+        }
+    }
+
+    private async Task TriggerUpdate(string serverId)
+    {
+        try
+        {
+            await ShowAlert("Please select updated ZIP file");
+            await TriggerFileUpload();
+            
+            if (serverFileData != null)
+            {
+                var client = HttpClientFactory.CreateClient();
+                client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+                
+                using var content = new MultipartFormDataContent();
+                content.Add(new ByteArrayContent(serverFileData), "file", "update.zip");
+                
+                var response = await client.PostAsync($"http://localhost:5000/api/server-connection/update/{serverId}", content);
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    await ShowAlert("Server updated successfully!");
+                    await LoadServers();
+                }
+                else
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Update failed: {response.StatusCode} - {errorContent}");
+                    await ShowAlert("Update failed");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"TriggerUpdate error: {ex.Message}");
+            await ShowAlert($"Update error: {ex.Message}");
+        }
+    }
+
+    private async Task ShowAlert(string message)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("alert", message);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ShowAlert error: {ex.Message}");
+        }
+    }
+
+    private class UserServer
+    {
+        public string ServerId { get; set; } = "";
+        public string ServerName { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public DateTime DeployedAt { get; set; }
+        public string Status { get; set; } = "Pending";
+        public string ScanStatus { get; set; } = "Pending";
+        public string? ScanMessage { get; set; }
+        public int? Pid { get; set; }
+        public DateTime? StartedAt { get; set; }
+        public List<string>? LastOutput { get; set; }
+        public bool HasAgent { get; set; }
+    }
+
+    private class DeploymentResult
+    {
+        public bool Success { get; set; }
+        public string? ServerId { get; set; }
+        public string? Message { get; set; }
+        public string? ScriptContent { get; set; }
+        public string? AgentScriptContent { get; set; }
+        public string? Status { get; set; }
+        public string? ServerUrl { get; set; }
+    }
+
+    private class ServerConfig
+    {
+        public bool InstallNode { get; set; }
+        public bool InstallPython { get; set; }
+        public bool InstallPhp { get; set; }
+        public string StartCommand { get; set; } = "";
+        public int Port { get; set; } = 3000;
+    }
+}

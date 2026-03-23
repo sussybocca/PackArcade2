@@ -1,0 +1,37 @@
+[
+  {
+    "Id": "df36f1ee-134c-42b6-8a97-ba671ca31836",
+    "Title": "this is just a random dev topic",
+    "Content": "so what is this?",
+    "Author": "anonymous",
+    "Category": "general",
+    "Pinned": false,
+    "Sticky": false,
+    "CreatedAt": "2026-03-22T08:23:06.2667796-05:00",
+    "LastActivity": "2026-03-22T08:23:06.2667841-05:00",
+    "Views": 2,
+    "Replies": [],
+    "Preview": "so what is this?"
+  },
+  {
+    "Id": "a8341c75-2e92-4e3a-a300-3e5b64ba801e",
+    "Title": "Welcome to PackArcade2 Community!",
+    "Content": "Welcome to the official PackArcade2 community forum! This is a place to share your projects, get help, and connect with other developers.\n\n## Getting Started\n\n- Introduce yourself\n- Share your first project\n- Ask questions",
+    "Author": "System",
+    "Category": "announcements",
+    "Pinned": true,
+    "Sticky": true,
+    "CreatedAt": "2026-03-15T08:21:55.2692694-05:00",
+    "LastActivity": "0001-01-01T00:00:00",
+    "Views": 156,
+    "Replies": [
+      {
+        "Id": "47326932-22cb-4b1c-82d1-2b62e8bc9cd2",
+        "Author": "PackArcade Team",
+        "Content": "Welcome everyone!",
+        "CreatedAt": "2026-03-16T08:21:55.2694665-05:00"
+      }
+    ],
+    "Preview": "Welcome to the official PackArcade2 community forum! This is a place to share your projects, get help, and connect with other developers.\n\n## Getting ..."
+  }
+]

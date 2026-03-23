@@ -1,0 +1,698 @@
+@page "/create"
+@using PackArcade2
+@using Microsoft.JSInterop
+@using System.Text.Json
+@using System.IO
+@inject ProjectService ProjectService
+@inject NavigationManager Navigation
+@inject IWebHostEnvironment Environment
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Create Project - PackArcade2 Studio</PageTitle>
+
+<div class="container-fluid">
+    <div class="row">
+        <!-- Left Sidebar - Components Panel -->
+        <div class="col-md-2 bg-dark text-white p-3" style="min-height: 100vh; overflow-y: auto;">
+            <h4>Components</h4>
+            
+            <div class="accordion mt-3" id="componentsAccordion">
+                <!-- Frontend Components -->
+                <div class="accordion-item bg-secondary">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button bg-secondary text-white" type="button" data-bs-toggle="collapse" data-bs-target="#frontend">
+                            Frontend
+                        </button>
+                    </h2>
+                    <div id="frontend" class="accordion-collapse collapse show">
+                        <div class="accordion-body">
+                            <div class="component-item" draggable="true" @ondragstart="StartDragHtml" @ondragend="StopDrag">
+                                HTML Block
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragCss" @ondragend="StopDrag">
+                                CSS Styler
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragJs" @ondragend="StopDrag">
+                                JavaScript
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragReact" @ondragend="StopDrag">
+                                React Component
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragVue" @ondragend="StopDrag">
+                                Vue Component
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backend Components -->
+                <div class="accordion-item bg-secondary">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button bg-secondary text-white collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#backend">
+                            Backend
+                        </button>
+                    </h2>
+                    <div id="backend" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="component-item" draggable="true" @ondragstart="StartDragNode" @ondragend="StopDrag">
+                                Node.js Module
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragExpress" @ondragend="StopDrag">
+                                Express Server
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragCs" @ondragend="StopDrag">
+                                C# Class
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragPython" @ondragend="StopDrag">
+                                Python Script
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragPhp" @ondragend="StopDrag">
+                                PHP Page
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Database Components -->
+                <div class="accordion-item bg-secondary">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button bg-secondary text-white collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#database">
+                            Database
+                        </button>
+                    </h2>
+                    <div id="database" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="component-item" draggable="true" @ondragstart="StartDragSql" @ondragend="StopDrag">
+                                SQL Table
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragMongoDb" @ondragend="StopDrag">
+                                MongoDB Collection
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragFirebase" @ondragend="StopDrag">
+                                Firebase Config
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- .NET References -->
+                <div class="accordion-item bg-secondary">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button bg-secondary text-white collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dotnet">
+                            .NET References
+                        </button>
+                    </h2>
+                    <div id="dotnet" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            <div class="component-item" draggable="true" @ondragstart="StartDragNuget" @ondragend="StopDrag">
+                                NuGet Package
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragCsRef" @ondragend="StopDrag">
+                                C# Reference
+                            </div>
+                            <div class="component-item" draggable="true" @ondragstart="StartDragBlazor" @ondragend="StopDrag">
+                                Blazor Component
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <hr class="mt-4" />
+            <h5>Your Files</h5>
+            <div class="file-list mt-2">
+                @foreach (var file in projectFiles)
+                {
+                    <div class="file-item" @onclick="() => SelectFile(file)">
+                        @file
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Main Canvas - Drop Zone -->
+        <div class="col-md-7 p-3" style="background: #1e1e1e; min-height: 100vh;">
+            <div class="mb-3">
+                <input @bind="projectName" class="form-control bg-dark text-white" placeholder="Project Name" />
+                @if (!string.IsNullOrEmpty(projectName))
+                {
+                    <small class="text-muted">URL: @(GetSubdomain()).packarcade.win</small>
+                }
+            </div>
+
+    <div class="canvas-area" 
+     @ondrop="OnDrop"
+     @ondragover="OnDragOver"
+     @ondragenter="OnDragEnter"
+     @ondragleave="OnDragLeave"
+     @on:preventDefault>
+    
+    @if (string.IsNullOrEmpty(selectedFile))
+    {
+        <div class="text-center text-muted mt-5">
+            <h3>Drag components here</h3>
+            <p>Or click a file to edit</p>
+        </div>
+    }
+    else
+    {
+        <div class="file-editor">
+            <div class="editor-header">
+                <h5>@selectedFile</h5>
+                <button class="btn btn-sm btn-danger" @onclick="CloseFile">Close</button>
+            </div>
+            <textarea @bind="fileContent" class="editor-textarea" rows="20"></textarea>
+        </div>
+    }
+
+    @foreach (var component in droppedComponents)
+    {
+        <div class="dropped-component" style="@component.Style" @onclick="() => SelectComponent(component)">
+            <span>@component.Type</span>
+            <button class="btn-close btn-close-white" @onclick="() => RemoveComponent(component.Id)"></button>
+        </div>
+    }
+</div>
+        <!-- Right Sidebar - Properties Panel -->
+        <div class="col-md-3 bg-dark text-white p-3" style="min-height: 100vh; overflow-y: auto;">
+            <h4>Properties</h4>
+            
+            @if (selectedComponent != null)
+            {
+                <div class="properties-panel mt-3">
+                    <div class="mb-3">
+                        <label class="form-label">Component Type</label>
+                        <input class="form-control bg-secondary text-white" readonly value="@selectedComponent.Type" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Width</label>
+                        <input type="number" class="form-control bg-secondary text-white" @bind="selectedComponent.Width" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Height</label>
+                        <input type="number" class="form-control bg-secondary text-white" @bind="selectedComponent.Height" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">X Position</label>
+                        <input type="number" class="form-control bg-secondary text-white" @bind="selectedComponent.X" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Y Position</label>
+                        <input type="number" class="form-control bg-secondary text-white" @bind="selectedComponent.Y" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Content</label>
+                        <textarea class="form-control bg-secondary text-white" rows="5" @bind="selectedComponent.Content"></textarea>
+                    </div>
+                    
+                    <button class="btn btn-primary w-100" @onclick="UpdateComponent">Update</button>
+                </div>
+            }
+            else
+            {
+                <div class="text-muted mt-3">
+                    Select a component to edit properties
+                </div>
+            }
+            
+            <hr class="mt-4" />
+            
+            <h5>Deployment</h5>
+            <div class="mt-3">
+                <button class="btn btn-success w-100 mb-2" @onclick="SaveProject" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save Project")
+                </button>
+                <button class="btn btn-primary w-100" @onclick="PublishProject" disabled="@isPublishing">
+                    @(isPublishing ? "Publishing..." : "Publish Project")
+                </button>
+            </div>
+            
+            @if (!string.IsNullOrEmpty(message))
+            {
+                var messageMarkup = (MarkupString)message;
+                <div class="alert alert-@(isError ? "danger" : "success") mt-3">
+                    @messageMarkup
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .component-item {
+        padding: 8px;
+        margin: 4px 0;
+        background: #3a3a3a;
+        border-radius: 4px;
+        cursor: grab;
+        transition: all 0.2s;
+        color: white;
+    }
+    
+    .component-item:hover {
+        background: #4a4a4a;
+        transform: translateX(5px);
+    }
+    
+    .component-item:active {
+        cursor: grabbing;
+    }
+    
+    .canvas-area {
+        background: #2d2d2d;
+        border: 2px dashed #4a4a4a;
+        border-radius: 8px;
+        min-height: 600px;
+        padding: 20px;
+        position: relative;
+        transition: all 0.2s;
+        color: white;
+    }
+    
+    .canvas-area.drag-over {
+        border-color: #0f0;
+        background: #3a3a3a;
+    }
+    
+    .file-item {
+        padding: 6px;
+        margin: 2px 0;
+        background: #3a3a3a;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9em;
+        color: white;
+    }
+    
+    .file-item:hover {
+        background: #4a4a4a;
+    }
+    
+    .file-editor {
+        background: #1e1e1e;
+        border-radius: 4px;
+        padding: 15px;
+        color: white;
+    }
+    
+    .editor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    
+    .editor-textarea {
+        width: 100%;
+        background: #2d2d2d;
+        color: #fff;
+        border: 1px solid #4a4a4a;
+        border-radius: 4px;
+        padding: 10px;
+        font-family: 'Courier New', monospace;
+    }
+    
+    .dropped-component {
+        position: absolute;
+        background: #3a3a3a;
+        border: 1px solid #0f0;
+        border-radius: 4px;
+        padding: 5px;
+        cursor: move;
+        z-index: 100;
+        color: white;
+    }
+    
+    .dropped-component:hover {
+        background: #4a4a4a;
+    }
+    
+    .properties-panel {
+        background: #2d2d2d;
+        border-radius: 4px;
+        padding: 15px;
+        color: white;
+    }
+    
+    .form-label {
+        color: white;
+    }
+    
+    .btn-close-white {
+        filter: invert(1);
+    }
+</style>
+
+@code {
+    private string projectName = "";
+    private string draggedType = "";
+    private bool isSaving = false;
+    private bool isPublishing = false;
+    private string message = "";
+    private bool isError = false;
+    private string selectedFile = "";
+    private string fileContent = "";
+    
+    private List<DroppedComponent> droppedComponents = new();
+    private DroppedComponent? selectedComponent = null;
+    private List<string> projectFiles = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProject();
+    }
+
+    private string GetSubdomain()
+    {
+        return string.IsNullOrWhiteSpace(projectName) 
+            ? "my-project" 
+            : projectName.ToLower().Replace(" ", "-").Replace("[^a-z0-9-]", "");
+    }
+
+    private async Task LoadProject()
+    {
+        if (!string.IsNullOrEmpty(projectName))
+        {
+            var subdomain = GetSubdomain();
+            var project = await ProjectService.GetProjectInfo(subdomain);
+            if (project != null)
+            {
+                var components = await ProjectService.GetProjectComponents(subdomain);
+                droppedComponents = components.Select(c => new DroppedComponent
+                {
+                    Id = c.Id,
+                    Type = c.Type,
+                    X = c.X,
+                    Y = c.Y,
+                    Width = c.Width,
+                    Height = c.Height,
+                    Content = c.Content,
+                    Style = $"left: {c.X}px; top: {c.Y}px; width: {c.Width}px; height: {c.Height}px;"
+                }).ToList();
+            }
+            LoadProjectFiles();
+        }
+    }
+
+    // Individual drag start methods
+    private void StartDragHtml() => draggedType = "html";
+    private void StartDragCss() => draggedType = "css";
+    private void StartDragJs() => draggedType = "js";
+    private void StartDragReact() => draggedType = "react";
+    private void StartDragVue() => draggedType = "vue";
+    private void StartDragNode() => draggedType = "node";
+    private void StartDragExpress() => draggedType = "express";
+    private void StartDragCs() => draggedType = "cs";
+    private void StartDragPython() => draggedType = "python";
+    private void StartDragPhp() => draggedType = "php";
+    private void StartDragSql() => draggedType = "sql";
+    private void StartDragMongoDb() => draggedType = "mongodb";
+    private void StartDragFirebase() => draggedType = "firebase";
+    private void StartDragNuget() => draggedType = "nuget";
+    private void StartDragCsRef() => draggedType = "csref";
+    private void StartDragBlazor() => draggedType = "blazor";
+
+    private void StopDrag()
+    {
+        // Required for drag end event
+    }
+
+    private void OnDragOver(DragEventArgs e)
+    {
+        e.DataTransfer.DropEffect = "copy";
+        // No need for PreventDefault - handled by directive
+    }
+
+    private void OnDragEnter(DragEventArgs e)
+    {
+        // Visual feedback handled by CSS
+    }
+
+    private void OnDragLeave(DragEventArgs e)
+    {
+        // Visual feedback handled by CSS
+    }
+
+    private async Task OnDrop(DragEventArgs e)
+    {
+        // No need for PreventDefault - handled by directive
+
+        if (!string.IsNullOrEmpty(draggedType))
+        {
+            var rect = await JSRuntime.InvokeAsync<DOMRect>("eval", "document.querySelector('.canvas-area').getBoundingClientRect()");
+            
+            var newComponent = new DroppedComponent
+            {
+                Id = Guid.NewGuid().ToString(),
+                Type = draggedType,
+                X = (int)(e.ClientX - rect.Left),
+                Y = (int)(e.ClientY - rect.Top),
+                Width = 200,
+                Height = 100,
+                Content = GetDefaultContent(draggedType)
+            };
+            
+            newComponent.Style = $"left: {newComponent.X}px; top: {newComponent.Y}px; width: {newComponent.Width}px; height: {newComponent.Height}px; position: absolute;";
+            
+            droppedComponents.Add(newComponent);
+            selectedComponent = newComponent;
+            
+            await SaveComponentToFile(newComponent);
+            StateHasChanged();
+        }
+    }
+
+    private string GetDefaultContent(string type)
+    {
+        return type switch
+        {
+            "html" => "<div>\n    <h1>Hello World</h1>\n</div>",
+            "css" => ".my-class {\n    color: red;\n}",
+            "js" => "// JavaScript code\nconsole.log('Hello');",
+            "cs" => "public class MyClass {\n    public string Name { get; set; }\n}",
+            _ => $"// {type} component"
+        };
+    }
+
+    private async Task SaveComponentToFile(DroppedComponent component)
+    {
+        var subdomain = GetSubdomain();
+        var projectDir = Path.Combine(Environment.WebRootPath, "projects", subdomain);
+        Directory.CreateDirectory(projectDir);
+        
+        var projectComponent = new ProjectComponent
+        {
+            Id = component.Id,
+            Type = component.Type,
+            X = component.X,
+            Y = component.Y,
+            Width = component.Width,
+            Height = component.Height,
+            Content = component.Content
+        };
+        
+        var filePath = Path.Combine(projectDir, $"{component.Id}.json");
+        var json = JsonSerializer.Serialize(projectComponent);
+        await File.WriteAllTextAsync(filePath, json);
+        
+        LoadProjectFiles();
+    }
+
+    private void LoadProjectFiles()
+    {
+        var subdomain = GetSubdomain();
+        var projectDir = Path.Combine(Environment.WebRootPath, "projects", subdomain);
+        
+        if (Directory.Exists(projectDir))
+        {
+            projectFiles = Directory.GetFiles(projectDir, "*.json")
+                .Where(f => !f.EndsWith("project.json"))
+                .Select(Path.GetFileName)
+                .ToList()!;
+        }
+    }
+
+    private async Task SelectFile(string filename)
+    {
+        selectedFile = filename;
+        var subdomain = GetSubdomain();
+        var filePath = Path.Combine(Environment.WebRootPath, "projects", subdomain, filename);
+        
+        if (File.Exists(filePath))
+        {
+            var json = await File.ReadAllTextAsync(filePath);
+            var component = JsonSerializer.Deserialize<ProjectComponent>(json);
+            if (component != null)
+            {
+                selectedComponent = droppedComponents.FirstOrDefault(c => c.Id == component.Id);
+                fileContent = component.Content;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void SelectComponent(DroppedComponent component)
+    {
+        selectedComponent = component;
+        fileContent = component.Content;
+    }
+
+    private void CloseFile()
+    {
+        selectedFile = "";
+        fileContent = "";
+        selectedComponent = null;
+    }
+
+    private async Task RemoveComponent(string id)
+    {
+        droppedComponents.RemoveAll(c => c.Id == id);
+        if (selectedComponent?.Id == id)
+        {
+            selectedComponent = null;
+            selectedFile = "";
+            fileContent = "";
+        }
+        
+        var subdomain = GetSubdomain();
+        var filePath = Path.Combine(Environment.WebRootPath, "projects", subdomain, $"{id}.json");
+        if (File.Exists(filePath))
+            File.Delete(filePath);
+        
+        LoadProjectFiles();
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task UpdateComponent()
+    {
+        if (selectedComponent != null)
+        {
+            selectedComponent.Style = $"left: {selectedComponent.X}px; top: {selectedComponent.Y}px; width: {selectedComponent.Width}px; height: {selectedComponent.Height}px; position: absolute;";
+            await SaveComponentToFile(selectedComponent);
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveProject()
+    {
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            message = "Please enter a project name";
+            isError = true;
+            return;
+        }
+
+        isSaving = true;
+        message = "";
+
+        try
+        {
+            var subdomain = GetSubdomain();
+            
+            foreach (var component in droppedComponents)
+                await SaveComponentToFile(component);
+            
+            var projectInfo = new ProjectInfo
+            {
+                Name = projectName,
+                Subdomain = subdomain,
+                Created = DateTime.Now,
+                LastSaved = DateTime.Now
+            };
+            
+            var success = await ProjectService.SaveProject(subdomain, projectInfo, 
+                droppedComponents.Select(c => new ProjectComponent
+                {
+                    Id = c.Id,
+                    Type = c.Type,
+                    X = c.X,
+                    Y = c.Y,
+                    Width = c.Width,
+                    Height = c.Height,
+                    Content = c.Content
+                }).ToList());
+            
+            if (success)
+            {
+                message = "Project saved successfully!";
+                isError = false;
+            }
+            else
+            {
+                message = "Failed to save project";
+                isError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task PublishProject()
+    {
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            message = "Please enter a project name";
+            isError = true;
+            return;
+        }
+
+        isPublishing = true;
+        message = "";
+
+        try
+        {
+            await SaveProject();
+            
+            var subdomain = GetSubdomain();
+            message = $"Project published! Visit: <a href='http://{subdomain}.packarcade.win' target='_blank'>http://{subdomain}.packarcade.win</a>";
+            isError = false;
+        }
+        catch (Exception ex)
+        {
+            message = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isPublishing = false;
+        }
+    }
+
+    private class DroppedComponent
+    {
+        public string Id { get; set; } = "";
+        public string Type { get; set; } = "";
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public string Content { get; set; } = "";
+        public string Style { get; set; } = "";
+    }
+
+    private class DOMRect
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+        public double Right { get; set; }
+        public double Bottom { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public double X { get; set; }
+        public double Y { get; set; }
+    }
+}
+</div>

@@ -1,0 +1,136 @@
+is_global = true
+build_property.ApplicationManifest = app.manifest
+build_property.StartupObject = 
+build_property.ApplicationDefaultFont = 
+build_property.ApplicationHighDpiMode = 
+build_property.ApplicationUseCompatibleTextRendering = 
+build_property.ApplicationVisualStyles = 
+build_property.TargetFramework = net8.0-windows
+build_property.TargetFramework = net8.0-windows
+build_property.TargetPlatformMinVersion = 7.0
+build_property.TargetPlatformMinVersion = 7.0
+build_property.UsingMicrosoftNETSdkWeb = true
+build_property.UsingMicrosoftNETSdkWeb = true
+build_property.ProjectTypeGuids = 
+build_property.ProjectTypeGuids = 
+build_property.InvariantGlobalization = 
+build_property.InvariantGlobalization = 
+build_property.PlatformNeutralAssembly = 
+build_property.PlatformNeutralAssembly = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property._SupportedPlatformList = Linux,macOS,Windows
+build_property._SupportedPlatformList = Linux,macOS,Windows
+build_property.RootNamespace = PackArcade2
+build_property.RootNamespace = PackArcade2
+build_property.ProjectDir = D:\PackArcade\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.CsWinRTUseWindowsUIXamlProjections = false
+build_property.RazorLangVersion = 8.0
+build_property.SupportLocalizedComponentNames = 
+build_property.GenerateRazorMetadataSourceChecksumAttributes = 
+build_property.MSBuildProjectDirectory = D:\PackArcade
+build_property._RazorSourceGeneratorDebug = 
+build_property.EffectiveAnalysisLevelStyle = 8.0
+build_property.EnableCodeStyleSeverity = 
+
+[D:/PackArcade/app.manifest]
+build_metadata.AdditionalFiles.TargetPath = 
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/AdminPanel.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQWRtaW5QYW5lbC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/AI.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQUkucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/App.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQXBwLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Create.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcQ3JlYXRlLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Dashboard.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcRGFzaGJvYXJkLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Editor.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcRWRpdG9yLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Forum.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcRm9ydW0ucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Home.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcSG9tZS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Livo.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTGl2by5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/MainLayout.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTWFpbkxheW91dC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/MyGames.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcTXlHYW1lcy5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/PK_STORAGE.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcUEtfU1RPUkFHRS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Play.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcUGxheS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Points.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcUG9pbnRzLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/ResetIPConsole.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcUmVzZXRJUENvbnNvbGUucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Runner.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcUnVubmVyLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Server-Connection.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcU2VydmVyLUNvbm5lY3Rpb24ucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/ServerOffline.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcU2VydmVyT2ZmbGluZS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Settings.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcU2V0dGluZ3MucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Templates.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcVGVtcGxhdGVzLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/Upload.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcVXBsb2FkLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/World-sandbox.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcV29ybGQtc2FuZGJveC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/_Imports.razor]
+build_metadata.AdditionalFiles.TargetPath = X0ltcG9ydHMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/PackArcade/Pages/_Host.cshtml]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcX0hvc3QuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 

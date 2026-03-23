@@ -1,0 +1,6 @@
+{
+  "Id": "eslint",
+  "Name": "ESLint",
+  "Description": "JavaScript linter",
+  "Installed": false
+}

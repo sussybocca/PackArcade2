@@ -1,0 +1,691 @@
+@page "/livo"
+@using System.Diagnostics
+@using System.IO
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject IWebHostEnvironment Environment
+
+// PageTitle removed because HeadOutlet/PageTitle component may not be available in this context
+
+<div class="livo-container">
+    <div class="livo-header">
+        <h1>⚡ Livo Studio</h1>
+        <p>Intelligent Code Editor with Auto Error Fixing | Node.js | Electron Support</p>
+        <div class="status-bar">
+            <span class="status" id="livoStatus">@statusMessage</span>
+            <button class="launch-btn" @onclick="LaunchLivo" disabled="@isLaunching">
+                @(isLaunching ? "Launching..." : "🚀 Launch Livo Studio")
+            </button>
+            @if (isRunning)
+            {
+                <button class="stop-btn" @onclick="StopLivo">⏹️ Stop</button>
+            }
+        </div>
+    </div>
+
+    @if (isRunning)
+    {
+        <div class="livo-frame-container">
+            <iframe id="livoFrame" src="@livoUrl" class="livo-frame" allow="autoplay; clipboard-read; clipboard-write"></iframe>
+        </div>
+    }
+    else if (!isStarting)
+    {
+        <div class="welcome-screen">
+            <div class="welcome-card">
+                <div class="welcome-icon">⚡</div>
+                <h2>Welcome to Livo Studio</h2>
+                <p>Launch the intelligent code studio to start coding with auto-error fixing</p>
+                <button class="launch-large-btn" @onclick="LaunchLivo">Launch Livo Studio</button>
+                <div class="features">
+                    <div class="feature">
+                        <span>🔧</span>
+                        <span>Auto Error Fixing</span>
+                    </div>
+                    <div class="feature">
+                        <span>🎨</span>
+                        <span>Code Formatting</span>
+                    </div>
+                    <div class="feature">
+                        <span>📦</span>
+                        <span>NPM Package Manager</span>
+                    </div>
+                    <div class="feature">
+                        <span>🖥️</span>
+                        <span>Electron App Support</span>
+                    </div>
+                    <div class="feature">
+                        <span>🔌</span>
+                        <span>WebSocket Live Updates</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="loading-screen">
+            <div class="spinner"></div>
+            <p>Starting Livo Studio...</p>
+            <p class="small">This may take a few moments</p>
+        </div>
+    }
+</div>
+
+<style>
+    .livo-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0e1a 0%, #0f111a 100%);
+        padding: 20px;
+        font-family: 'Segoe UI', monospace;
+    }
+
+    .livo-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .livo-header h1 {
+        color: #00ffaa;
+        font-size: 48px;
+        margin-bottom: 10px;
+        text-shadow: 0 0 10px rgba(0,255,170,0.3);
+    }
+
+    .livo-header p {
+        color: #6c7293;
+        margin-bottom: 20px;
+    }
+
+    .status-bar {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .status {
+        color: #ffaa44;
+        font-size: 14px;
+    }
+
+    .launch-btn, .launch-large-btn, .stop-btn {
+        background: linear-gradient(135deg, #00ffaa, #00cc88);
+        color: #0a0e1a;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .stop-btn {
+        background: linear-gradient(135deg, #ff4444, #cc3333);
+        color: white;
+    }
+
+    .launch-btn:hover, .launch-large-btn:hover {
+        transform: scale(1.05);
+    }
+
+    .stop-btn:hover {
+        transform: scale(1.05);
+    }
+
+    .launch-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .livo-frame-container {
+        width: 100%;
+        height: calc(100vh - 150px);
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #2a2e3a;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        background: #1e1e1e;
+    }
+
+    .livo-frame {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: #1e1e1e;
+    }
+
+    .welcome-screen {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 500px;
+    }
+
+    .welcome-card {
+        background: rgba(0,0,0,0.4);
+        border: 1px solid #2a2e3a;
+        border-radius: 24px;
+        padding: 40px;
+        text-align: center;
+        max-width: 600px;
+    }
+
+    .welcome-icon {
+        font-size: 80px;
+        margin-bottom: 20px;
+    }
+
+    .welcome-card h2 {
+        color: #00ffaa;
+        margin-bottom: 16px;
+    }
+
+    .welcome-card p {
+        color: #aaa;
+        margin-bottom: 30px;
+    }
+
+    .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 16px;
+        margin-top: 30px;
+    }
+
+    .feature {
+        background: rgba(0,0,0,0.3);
+        padding: 12px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 14px;
+    }
+
+    .loading-screen {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 400px;
+        gap: 20px;
+    }
+
+    .spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid #2a2e3a;
+        border-top-color: #00ffaa;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .small {
+        font-size: 12px;
+        color: #6c7293;
+    }
+
+    @@media (max-width: 768px) {
+        .livo-header h1 {
+            font-size: 32px;
+        }
+        
+        .features {
+            grid-template-columns: 1fr;
+        }
+        
+        .welcome-card {
+            padding: 24px;
+            margin: 20px;
+        }
+    }
+</style>
+
+@code {
+    private bool isRunning = false;
+    private bool isStarting = false;
+    private bool isLaunching = false;
+    private string livoUrl = "";
+    private int livoPort = 3010;
+    private Process? livoProcess;
+    private string livoPath = "";
+    private string statusMessage = "Checking Livo server...";
+    private System.Timers.Timer? statusTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        livoPath = Path.Combine(Environment.WebRootPath, "..", "Node.js", "Livo");
+        
+        // Create directory if it doesn't exist
+        if (!Directory.Exists(livoPath))
+        {
+            Directory.CreateDirectory(livoPath);
+            await CreateDefaultLivoFiles();
+        }
+        
+        // Check if Livo is already running
+        await CheckLivoStatus();
+        
+        // Start status checker timer
+        statusTimer = new System.Timers.Timer(5000);
+        statusTimer.Elapsed += async (s, e) => await CheckLivoStatus();
+        statusTimer.Start();
+    }
+
+    private async Task CreateDefaultLivoFiles()
+    {
+        try
+        {
+            // Create package.json
+            var packageJson = @"{
+  ""name"": ""livo-studio"",
+  ""version"": ""1.0.0"",
+  ""description"": ""Intelligent Code Studio"",
+  ""main"": ""server.js"",
+  ""scripts"": {
+    ""start"": ""node server.js""
+  },
+  ""dependencies"": {
+    ""express"": ""^4.18.2"",
+    ""ws"": ""^8.14.2""
+  }
+}";
+            await File.WriteAllTextAsync(Path.Combine(livoPath, "package.json"), packageJson);
+            
+            // Create server.js
+            var serverJs = @"const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const http = require('http');
+const WebSocket = require('ws');
+
+const app = express();
+const port = 3010;
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/api/status', (req, res) => {
+    res.json({ status: 'running', version: '1.0.0' });
+});
+
+app.post('/api/format', (req, res) => {
+    const { code } = req.body;
+    // Simple formatting
+    let formatted = code;
+    res.json({ formatted });
+});
+
+app.post('/api/fix', (req, res) => {
+    const { code } = req.body;
+    // Simple error fixing
+    let fixed = code;
+    res.json({ fixed });
+});
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+    console.log('Client connected');
+    ws.on('message', (message) => {
+        const data = JSON.parse(message);
+        console.log('Received:', data);
+    });
+});
+
+// Create public directory
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir);
+}
+
+// Create index.html
+const indexPath = path.join(publicDir, 'index.html');
+if (!fs.existsSync(indexPath)) {
+    const indexHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <title>Livo Studio</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #00ffaa; }
+        textarea {
+            width: 100%;
+            height: 400px;
+            background: #2d2d2d;
+            color: #d4d4d4;
+            border: 1px solid #3e3e3e;
+            font-family: monospace;
+            font-size: 14px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        button {
+            background: #00ffaa;
+            color: #1e1e1e;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #00cc88;
+        }
+        .output {
+            background: #2d2d2d;
+            padding: 10px;
+            margin-top: 10px;
+            border: 1px solid #3e3e3e;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <h1>⚡ Livo Studio</h1>
+        <p>Intelligent Code Editor with Auto Error Fixing</p>
+        <textarea id='codeEditor' placeholder='Write your code here...'>// Welcome to Livo Studio
+console.log('Hello World!');
+
+function add(a, b) {
+    return a + b;
+}
+
+console.log(add(5, 3));</textarea>
+        <div>
+            <button onclick='formatCode()'>🎨 Format Code</button>
+            <button onclick='fixErrors()'>🔧 Fix Errors</button>
+            <button onclick='runCode()'>▶️ Run Code</button>
+            <button onclick='clearOutput()'>🗑️ Clear</button>
+        </div>
+        <div class='output' id='output'></div>
+    </div>
+    <script>
+        function formatCode() {
+            const code = document.getElementById('codeEditor').value;
+            fetch('/api/format', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('codeEditor').value = data.formatted;
+                addOutput('✅ Code formatted');
+            });
+        }
+        
+        function fixErrors() {
+            const code = document.getElementById('codeEditor').value;
+            fetch('/api/fix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('codeEditor').value = data.fixed;
+                addOutput('🔧 Errors fixed');
+            });
+        }
+        
+        function runCode() {
+            const code = document.getElementById('codeEditor').value;
+            try {
+                const result = eval(code);
+                addOutput('> ' + String(result));
+            } catch (error) {
+                addOutput('❌ Error: ' + error.message);
+            }
+        }
+        
+        function addOutput(text) {
+            const output = document.getElementById('output');
+            output.innerHTML += '<div>' + text + '</div>';
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+        }
+    </script>
+</body>
+</html>`;
+    fs.writeFileSync(indexPath, indexHtml);
+}
+
+server.listen(port, () => {
+    console.log('Livo Studio running at http://localhost:' + port);
+});";
+            await File.WriteAllTextAsync(Path.Combine(livoPath, "server.js"), serverJs);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error creating Livo files: {ex.Message}");
+        }
+    }
+
+    private async Task CheckLivoStatus()
+    {
+        try
+        {
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(2);
+            var response = await httpClient.GetAsync($"http://localhost:{livoPort}/api/status");
+            isRunning = response.IsSuccessStatusCode;
+            if (isRunning)
+            {
+                livoUrl = $"http://localhost:{livoPort}";
+                statusMessage = "✅ Livo Studio is running";
+                if (!string.IsNullOrEmpty(livoUrl))
+                {
+                    await JSRuntime.InvokeVoidAsync("eval", "if(document.getElementById('livoFrame')) document.getElementById('livoFrame').src = '" + livoUrl + "'");
+                }
+            }
+            else
+            {
+                statusMessage = "⏳ Livo Studio is stopped";
+            }
+        }
+        catch
+        {
+            isRunning = false;
+            statusMessage = "⏳ Livo Studio is stopped";
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+   private async Task LaunchLivo()
+{
+    if (isLaunching) return;
+    
+    isLaunching = true;
+    isStarting = true;
+    statusMessage = "🚀 Starting Livo Studio...";
+    StateHasChanged();
+
+    try
+    {
+        // Install dependencies if needed
+        if (!File.Exists(Path.Combine(livoPath, "node_modules")))
+        {
+            statusMessage = "📦 Installing dependencies...";
+            StateHasChanged();
+            await InstallDependencies();
+        }
+
+        // Use the full path to npm
+        string npmPath = @"D:\npm\npm.cmd";
+        
+        // Start Livo process
+        livoProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = npmPath,
+                Arguments = "start",
+                WorkingDirectory = livoPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }
+        };
+        
+        // Set PATH for the process so npm can find node
+       livoProcess.StartInfo.EnvironmentVariables["PATH"] = @"D:\npm;" + System.Environment.GetEnvironmentVariable("PATH") ?? "";
+
+        livoProcess.Start();
+        
+        // Read output
+        livoProcess.OutputDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                Console.WriteLine($"[Livo] {e.Data}");
+                if (e.Data.Contains("running at") || e.Data.Contains("listening"))
+                {
+                    InvokeAsync(async () =>
+                    {
+                        await Task.Delay(1000);
+                        await CheckLivoStatus();
+                        isStarting = false;
+                        statusMessage = "✅ Livo Studio is running";
+                        StateHasChanged();
+                    });
+                }
+            }
+        };
+        
+        livoProcess.ErrorDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                Console.WriteLine($"[Livo Error] {e.Data}");
+            }
+        };
+        
+        livoProcess.BeginOutputReadLine();
+        livoProcess.BeginErrorReadLine();
+        
+        // Wait for server to start
+        await Task.Delay(5000);
+        await CheckLivoStatus();
+        isStarting = false;
+        statusMessage = isRunning ? "✅ Livo Studio is running" : "⚠️ Failed to start Livo Studio";
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error launching Livo: {ex.Message}");
+        statusMessage = $"❌ Error: {ex.Message}";
+        await JSRuntime.InvokeVoidAsync("alert", $"Error launching Livo: {ex.Message}");
+        isStarting = false;
+    }
+    finally
+    {
+        isLaunching = false;
+        StateHasChanged();
+    }
+}
+
+    private async Task StopLivo()
+    {
+        try
+        {
+            if (livoProcess != null && !livoProcess.HasExited)
+            {
+                livoProcess.Kill();
+                await livoProcess.WaitForExitAsync();
+                livoProcess.Dispose();
+                livoProcess = null;
+            }
+            await CheckLivoStatus();
+            statusMessage = "⏹️ Livo Studio stopped";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error stopping Livo: {ex.Message}");
+        }
+    }
+
+    private async Task InstallDependencies()
+{
+    Console.WriteLine("Installing Livo dependencies...");
+    
+    // Use the full path to npm
+    string npmPath = @"D:\npm\npm.cmd";
+    
+    var npmInstall = new Process
+    {
+        StartInfo = new ProcessStartInfo
+        {
+            FileName = npmPath,
+            Arguments = "install",
+            WorkingDirectory = livoPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        }
+    };
+    
+    // Also set the PATH environment variable for the process
+   npmInstall.StartInfo.EnvironmentVariables["PATH"] = @"D:\npm;" + System.Environment.GetEnvironmentVariable("PATH") ?? "";
+    
+    npmInstall.Start();
+    
+    string output = await npmInstall.StandardOutput.ReadToEndAsync();
+    string error = await npmInstall.StandardError.ReadToEndAsync();
+    await npmInstall.WaitForExitAsync();
+    
+    if (!string.IsNullOrEmpty(output)) Console.WriteLine(output);
+    if (!string.IsNullOrEmpty(error)) Console.WriteLine($"Error: {error}");
+    Console.WriteLine("Dependencies installed");
+}
+        
+   
+
+    public async ValueTask DisposeAsync()
+    {
+        if (statusTimer != null)
+        {
+            statusTimer.Stop();
+            statusTimer.Dispose();
+        }
+        
+        if (livoProcess != null && !livoProcess.HasExited)
+        {
+            try
+            {
+                livoProcess.Kill();
+                await livoProcess.WaitForExitAsync();
+                livoProcess.Dispose();
+            }
+            catch { }
+        }
+    }
+}

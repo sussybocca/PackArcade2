@@ -1,0 +1,921 @@
+@using PackArcade2.Services
+@using System.Diagnostics
+@using System.Text
+@using System.Runtime.InteropServices
+@inject IPWhitelistService IPWhitelist
+@inject IWebHostEnvironment Environment
+@inject IJSRuntime JSRuntime
+@inject AdminAuthService AdminAuth
+@inject ILogger<ResetIPConsole> Logger
+
+<div class="console-window">
+    <div class="console-header">
+        <span>🔒 PACKARCADE2 ADVANCED SECURITY SANDBOX v3.0</span>
+        <span class="console-time">@DateTime.Now.ToString("HH:mm:ss")</span>
+        <span class="sandbox-status @(sandboxActive ? "active" : "inactive")">
+            @(sandboxActive ? "🛡️ SANDBOX ACTIVE" : "⚡ SANDBOX INACTIVE")
+        </span>
+    </div>
+    <div class="console-content" id="consoleContent">
+        @foreach (var line in lines.TakeLast(500))
+        {
+            if (line.StartsWith("[ERROR]"))
+            {
+                <div class="console-error">@line</div>
+            }
+            else if (line.StartsWith("[WARN]"))
+            {
+                <div class="console-warn">@line</div>
+            }
+            else if (line.StartsWith("[SUCCESS]"))
+            {
+                <div class="console-success">@line</div>
+            }
+            else if (line.StartsWith("[CMD]"))
+            {
+                <div class="console-cmd">@line</div>
+            }
+            else if (line.StartsWith("[VM]"))
+            {
+                <div class="console-vm">@line</div>
+            }
+            else if (line.StartsWith("[SANDBOX]"))
+            {
+                <div class="console-sandbox">@line</div>
+            }
+            else
+            {
+                <div>@line</div>
+            }
+        }
+        @if (waitingForInput)
+        {
+            <div class="input-line">
+                <span class="prompt">[sandbox@packarcade:~]$</span>
+                <input id="consoleInput" @bind="userInput" @onkeypress="OnKeyPress" />
+            </div>
+        }
+        @if (isProcessing)
+        {
+            <div class="processing">
+                <span class="spinner"></span> Processing...
+            </div>
+        }
+        @if (sandboxProcess != null && !sandboxProcess.HasExited)
+        {
+            <div class="sandbox-status-bar">
+                <span>🖥️ Sandbox PID: @sandboxProcess.Id</span>
+                <span>💾 Memory: @GetSandboxMemory()</span>
+                <span>⏱️ Uptime: @GetSandboxUptime()</span>
+            </div>
+        }
+    </div>
+    <div class="console-footer">
+        <span>Commands: help | run &lt;cmd&gt; | vmstart | vmstop | vmstatus | resetip | backup | clear | exit</span>
+    </div>
+</div>
+
+<style>
+    .console-window {
+        background: #0a0e1a;
+        color: #00ffaa;
+        font-family: 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+        font-size: 14px;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+        border: 1px solid #2a2e3a;
+        width: 1000px;
+        max-width: 95vw;
+        margin: 0 auto;
+    }
+    .console-header {
+        background: linear-gradient(135deg, #1a1e2a 0%, #0f111a 100%);
+        padding: 12px 16px;
+        font-weight: 600;
+        color: #00ffaa;
+        border-bottom: 1px solid #2a2e3a;
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        letter-spacing: 0.5px;
+    }
+    .console-time, .sandbox-status {
+        font-family: monospace;
+        font-size: 11px;
+    }
+    .sandbox-status.active {
+        color: #44ff44;
+    }
+    .sandbox-status.inactive {
+        color: #ff4444;
+    }
+    .console-content {
+        padding: 16px;
+        height: 450px;
+        overflow-y: auto;
+        background: #0a0e1a;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.5;
+    }
+    .console-content::-webkit-scrollbar {
+        width: 8px;
+        background: #1a1e2a;
+    }
+    .console-content::-webkit-scrollbar-thumb {
+        background: #2a2e3a;
+        border-radius: 4px;
+    }
+    .console-error {
+        color: #ff4444;
+        border-left: 3px solid #ff4444;
+        padding-left: 10px;
+        margin: 4px 0;
+    }
+    .console-warn {
+        color: #ffaa44;
+        border-left: 3px solid #ffaa44;
+        padding-left: 10px;
+        margin: 4px 0;
+    }
+    .console-success {
+        color: #44ff44;
+        border-left: 3px solid #44ff44;
+        padding-left: 10px;
+        margin: 4px 0;
+    }
+    .console-cmd {
+        color: #88aaff;
+        border-left: 3px solid #88aaff;
+        padding-left: 10px;
+        margin: 4px 0;
+    }
+    .console-vm {
+        color: #ff88aa;
+        border-left: 3px solid #ff88aa;
+        padding-left: 10px;
+        margin: 4px 0;
+    }
+    .console-sandbox {
+        color: #88ffaa;
+        border-left: 3px solid #88ffaa;
+        padding-left: 10px;
+        margin: 4px 0;
+    }
+    .input-line {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid #1a1e2a;
+    }
+    .prompt {
+        color: #44ff44;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .input-line input {
+        background: transparent;
+        border: none;
+        color: #00ffaa;
+        font-family: 'Fira Code', monospace;
+        flex: 1;
+        outline: none;
+        font-size: 14px;
+    }
+    .processing {
+        margin-top: 12px;
+        color: #ffaa44;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid #ffaa44;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        display: inline-block;
+    }
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .console-footer {
+        background: #0f111a;
+        padding: 8px 16px;
+        border-top: 1px solid #1a1e2a;
+        font-size: 11px;
+        color: #4a4e6a;
+        font-family: monospace;
+    }
+    .sandbox-status-bar {
+        margin-top: 12px;
+        padding: 8px;
+        background: #1a1e2a;
+        border-radius: 6px;
+        display: flex;
+        gap: 16px;
+        font-size: 11px;
+        color: #88ffaa;
+    }
+</style>
+
+@code {
+    [Parameter] public EventCallback OnComplete { get; set; }
+    
+    private List<string> lines = new();
+    private bool waitingForInput = false;
+    private bool isProcessing = false;
+    private string userInput = "";
+    private string backupPath = @"D:\PackArcade\BackUps";
+    private DateTime sandboxStartTime;
+    private bool sandboxActive = false;
+    private Process? sandboxProcess;
+    private IntPtr? sandboxJob;
+    private string? sandboxTempDir;
+    
+    private const long MAX_MEMORY_MB = 512;
+    private const int MAX_PROCESS_TIME_SECONDS = 300;
+    
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
+    
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr hJob, int JobObjectInfoClass, 
+        ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION lpJobObjectInfo, uint cbJobObjectInfoLength);
+    
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+    
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
+    
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+    
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+    
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+    
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+    private const uint JOB_OBJECT_LIMIT_PROCESS_TIME = 0x0004;
+    private const uint JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x0100;
+    private const uint BELOW_NORMAL_PRIORITY_CLASS = 0x4000;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await StartConsole();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && waitingForInput)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('consoleInput')?.focus();");
+        }
+    }
+
+    private async Task StartConsole()
+    {
+        lines.Add("");
+        lines.Add("╔══════════════════════════════════════════════════════════════════════════════╗");
+        lines.Add("║         PACKARCADE2 ADVANCED SECURITY SANDBOX - ISOLATED ENVIRONMENT         ║");
+        lines.Add("╚══════════════════════════════════════════════════════════════════════════════╝");
+        lines.Add("");
+        lines.Add("[SANDBOX] Windows Job Object Sandbox initialized");
+        lines.Add("[SANDBOX] Memory limit: 512 MB per process");
+        lines.Add("[SANDBOX] CPU limit: Below Normal priority");
+        lines.Add("[SANDBOX] Time limit: 5 minutes per process");
+        lines.Add("");
+        lines.Add("Available commands:");
+        lines.Add("  help              - Show this help");
+        lines.Add("  run <command>     - Execute command in sandbox");
+        lines.Add("  vmstart           - Start isolated VM environment");
+        lines.Add("  vmstop            - Stop VM environment");
+        lines.Add("  vmstatus          - Show VM status");
+        lines.Add("  resetip           - Reset IP whitelist (requires confirmation)");
+        lines.Add("  backup            - Create manual backup");
+        lines.Add("  clear             - Clear console");
+        lines.Add("  exit              - Close console");
+        lines.Add("");
+        
+        waitingForInput = true;
+        StateHasChanged();
+        
+        await Task.Delay(100);
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('consoleInput')?.focus();");
+    }
+
+    private async Task OnKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && waitingForInput && !isProcessing)
+        {
+            var input = userInput.Trim();
+            lines.Add($"[sandbox@packarcade:~]$ {userInput}");
+            userInput = "";
+            waitingForInput = false;
+            StateHasChanged();
+            
+            await ProcessCommand(input);
+            
+            waitingForInput = true;
+            StateHasChanged();
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('consoleInput')?.focus();");
+        }
+    }
+
+    private async Task ProcessCommand(string input)
+    {
+        isProcessing = true;
+        StateHasChanged();
+        
+        var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var cmd = parts[0].ToLower();
+        var args = parts.Skip(1).ToArray();
+        
+        switch (cmd)
+        {
+            case "help":
+                await ShowHelp();
+                break;
+                
+            case "run":
+                if (args.Length == 0)
+                {
+                    lines.Add("[ERROR] No command specified. Usage: run <command>");
+                }
+                else
+                {
+                    await RunCommandInSandbox(string.Join(" ", args));
+                }
+                break;
+                
+            case "vmstart":
+                await StartVM();
+                break;
+                
+            case "vmstop":
+                await StopVM();
+                break;
+                
+            case "vmstatus":
+                await ShowVMStatus();
+                break;
+                
+            case "resetip":
+                await StartIPReset();
+                break;
+                
+            case "backup":
+                await CreateBackup();
+                break;
+                
+            case "clear":
+                lines.Clear();
+                lines.Add("Console cleared.");
+                break;
+                
+            case "exit":
+                lines.Add("[INFO] Closing console...");
+                StateHasChanged();
+                await Task.Delay(500);
+                await OnComplete.InvokeAsync();
+                break;
+                
+            default:
+                lines.Add($"[ERROR] Unknown command: {cmd}. Type 'help' for available commands.");
+                break;
+        }
+        
+        isProcessing = false;
+        StateHasChanged();
+    }
+    
+    private async Task ShowHelp()
+    {
+        lines.Add("");
+        lines.Add("╔════════════════════════════════════════════════════════════════════╗");
+        lines.Add("║                    ADVANCED SANDBOX COMMANDS                       ║");
+        lines.Add("╚════════════════════════════════════════════════════════════════════╝");
+        lines.Add("");
+        lines.Add("  help                    - Display this help message");
+        lines.Add("  run <command>           - Execute command in isolated sandbox");
+        lines.Add("  vmstart                 - Start the isolated VM environment");
+        lines.Add("  vmstop                  - Stop the VM environment");
+        lines.Add("  vmstatus                - Show VM status and resource usage");
+        lines.Add("  resetip                 - Reset IP whitelist (admin only)");
+        lines.Add("  backup                  - Create manual backup of all projects");
+        lines.Add("  clear                   - Clear console screen");
+        lines.Add("  exit                    - Close security console");
+        lines.Add("");
+        lines.Add("SANDBOX EXAMPLES:");
+        lines.Add("  run ping 8.8.8.8 -n 4   - Run ping in sandbox");
+        lines.Add("  run ipconfig             - Show network config (sandboxed)");
+        lines.Add("  run dir C:\\             - List directory (sandboxed)");
+        lines.Add("  run node --version       - Check Node.js version");
+        lines.Add("  run python --version     - Check Python version");
+        lines.Add("");
+    }
+    
+    private async Task RunCommandInSandbox(string command)
+    {
+        try
+        {
+            lines.Add($"[CMD] Executing in sandbox: {command}");
+            
+            var sandboxDir = Path.Combine(Path.GetTempPath(), "PackArcade2_Sandbox", Guid.NewGuid().ToString());
+            Directory.CreateDirectory(sandboxDir);
+            sandboxTempDir = sandboxDir;
+            
+            string fileName, arguments;
+            
+            if (command.StartsWith("ping "))
+            {
+                fileName = "ping";
+                arguments = command.Substring(5);
+            }
+            else if (command.StartsWith("ipconfig"))
+            {
+                fileName = "ipconfig";
+                arguments = "";
+            }
+            else if (command.StartsWith("netstat"))
+            {
+                fileName = "netstat";
+                arguments = command.Length > 8 ? command.Substring(8) : "";
+            }
+            else if (command.StartsWith("node"))
+            {
+                fileName = "node";
+                arguments = command.Length > 4 ? command.Substring(5) : "--version";
+            }
+            else if (command.StartsWith("python"))
+            {
+                fileName = "python";
+                arguments = command.Length > 6 ? command.Substring(7) : "--version";
+            }
+            else if (command.StartsWith("dotnet"))
+            {
+                fileName = "dotnet";
+                arguments = command.Length > 6 ? command.Substring(7) : "--version";
+            }
+            else if (command.StartsWith("dir"))
+            {
+                fileName = "cmd";
+                arguments = "/c dir " + (command.Length > 3 ? command.Substring(4) : "");
+            }
+            else
+            {
+                fileName = "cmd";
+                arguments = "/c " + command;
+            }
+            
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                WorkingDirectory = sandboxDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                LoadUserProfile = false
+            };
+            
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            sandboxJob = job;
+            
+            var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            {
+                BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+                {
+                    LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PROCESS_TIME | JOB_OBJECT_LIMIT_PROCESS_MEMORY,
+                    PerProcessUserTimeLimit = MAX_PROCESS_TIME_SECONDS * 10000000L,
+                    PriorityClass = BELOW_NORMAL_PRIORITY_CLASS
+                },
+                ProcessMemoryLimit = new UIntPtr((ulong)MAX_MEMORY_MB * 1024 * 1024)
+            };
+            
+            SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(limits));
+            
+            var process = new Process { StartInfo = startInfo };
+            process.Start();
+            AssignProcessToJobObject(job, process.Handle);
+            
+            var output = new StringBuilder();
+            var error = new StringBuilder();
+            
+            process.OutputDataReceived += (s, e) => { if (e.Data != null) output.AppendLine(e.Data); };
+            process.ErrorDataReceived += (s, e) => { if (e.Data != null) error.AppendLine(e.Data); };
+            
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            
+            var timeout = Task.Delay(MAX_PROCESS_TIME_SECONDS * 1000);
+            var completed = Task.Run(() => process.WaitForExit());
+            
+            if (await Task.WhenAny(completed, timeout) == timeout)
+            {
+                TerminateJobObject(job, 1);
+                lines.Add("[WARN] Command timed out after 5 minutes");
+            }
+            
+            if (output.Length > 0)
+            {
+                foreach (var line in output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    lines.Add($"  {line.Trim()}");
+                }
+            }
+            
+            if (error.Length > 0)
+            {
+                lines.Add($"[ERROR] {error.ToString().Trim()}");
+            }
+            
+            lines.Add($"[SUCCESS] Command completed with exit code: {process.ExitCode}");
+            
+            TerminateJobObject(job, 1);
+            process.Dispose();
+            
+            try { Directory.Delete(sandboxDir, true); } catch { }
+            sandboxTempDir = null;
+            sandboxJob = null;
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"[ERROR] Sandbox execution failed: {ex.Message}");
+        }
+    }
+    
+    private async Task StartVM()
+    {
+        if (sandboxActive)
+        {
+            lines.Add("[WARN] VM is already running");
+            return;
+        }
+        
+        try
+        {
+            lines.Add("[VM] Starting isolated VM environment...");
+            
+            var vmDir = Path.Combine(Path.GetTempPath(), "PackArcade2_VM", Guid.NewGuid().ToString());
+            Directory.CreateDirectory(vmDir);
+            sandboxTempDir = vmDir;
+            
+            var scriptPath = Path.Combine(vmDir, "vm_environment.ps1");
+            var scriptContent = @"
+Write-Host '=========================================' -ForegroundColor Green
+Write-Host '  PACKARCADE2 ISOLATED VM ENVIRONMENT   ' -ForegroundColor Green
+Write-Host '=========================================' -ForegroundColor Green
+Write-Host ''
+Write-Host 'VM ID: ' + [Guid]::NewGuid().ToString()
+Write-Host 'Start Time: ' + (Get-Date)
+Write-Host 'Memory Limit: 512 MB'
+Write-Host 'CPU Priority: Below Normal'
+Write-Host ''
+Write-Host 'This is an isolated environment. All processes are contained.'
+Write-Host 'Type ''exit'' to close the VM.'
+Write-Host ''
+while ($true) {
+    $input = Read-Host 'VM> '
+    if ($input -eq 'exit') { break }
+    try {
+        $result = Invoke-Expression $input 2>&1
+        $result | Out-String
+    } catch {
+        Write-Host 'Error: ' $_.Exception.Message -ForegroundColor Red
+    }
+}
+";
+            await File.WriteAllTextAsync(scriptPath, scriptContent);
+            
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                WorkingDirectory = vmDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            
+            IntPtr job = CreateJobObject(IntPtr.Zero, null);
+            sandboxJob = job;
+            
+            var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            {
+                BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+                {
+                    LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PROCESS_MEMORY,
+                    PriorityClass = BELOW_NORMAL_PRIORITY_CLASS
+                },
+                ProcessMemoryLimit = new UIntPtr((ulong)MAX_MEMORY_MB * 1024 * 1024)
+            };
+            
+            SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(limits));
+            
+            sandboxProcess = new Process { StartInfo = startInfo };
+            sandboxProcess.Start();
+            AssignProcessToJobObject(job, sandboxProcess.Handle);
+            
+            sandboxProcess.OutputDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    InvokeAsync(() => { lines.Add($"[VM] {e.Data}"); StateHasChanged(); });
+                }
+            };
+            
+            sandboxProcess.ErrorDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    InvokeAsync(() => { lines.Add($"[VM ERROR] {e.Data}"); StateHasChanged(); });
+                }
+            };
+            
+            sandboxProcess.BeginOutputReadLine();
+            sandboxProcess.BeginErrorReadLine();
+            
+            sandboxActive = true;
+            sandboxStartTime = DateTime.Now;
+            
+            lines.Add("[SUCCESS] VM environment started");
+            lines.Add($"[VM] PID: {sandboxProcess.Id}");
+            lines.Add("[VM] Type commands in the console above. Type 'exit' to stop the VM.");
+            
+            _ = Task.Run(async () =>
+            {
+                await sandboxProcess.WaitForExitAsync();
+                await InvokeAsync(async () =>
+                {
+                    if (sandboxActive)
+                    {
+                        sandboxActive = false;
+                        lines.Add("[VM] VM environment stopped");
+                        await CleanupSandbox();
+                        StateHasChanged();
+                    }
+                });
+            });
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"[ERROR] Failed to start VM: {ex.Message}");
+        }
+    }
+    
+    private async Task StopVM()
+    {
+        if (!sandboxActive || sandboxProcess == null)
+        {
+            lines.Add("[WARN] No VM environment is running");
+            return;
+        }
+        
+        try
+        {
+            lines.Add("[VM] Stopping VM environment...");
+            
+            if (sandboxJob.HasValue && sandboxJob.Value != IntPtr.Zero)
+            {
+                TerminateJobObject(sandboxJob.Value, 1);
+            }
+            
+            if (!sandboxProcess.HasExited)
+            {
+                sandboxProcess.Kill();
+                await sandboxProcess.WaitForExitAsync();
+            }
+            
+            sandboxProcess.Dispose();
+            sandboxActive = false;
+            
+            await CleanupSandbox();
+            lines.Add("[SUCCESS] VM environment stopped");
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"[ERROR] Failed to stop VM: {ex.Message}");
+        }
+    }
+    
+    private async Task ShowVMStatus()
+    {
+        lines.Add("");
+        lines.Add("╔══════════════════════════════════════════════════════════╗");
+        lines.Add("║                  VM STATUS REPORT                        ║");
+        lines.Add("╚══════════════════════════════════════════════════════════╝");
+        lines.Add($"  Status: {(sandboxActive ? "🟢 RUNNING" : "🔴 STOPPED")}");
+        
+        if (sandboxActive && sandboxProcess != null)
+        {
+            lines.Add($"  PID: {sandboxProcess.Id}");
+            lines.Add($"  Uptime: {(DateTime.Now - sandboxStartTime).ToString(@"hh\:mm\:ss")}");
+            lines.Add($"  Memory: {GetSandboxMemory()}");
+            lines.Add($"  Threads: {sandboxProcess.Threads.Count}");
+            lines.Add($"  Process Name: {sandboxProcess.ProcessName}");
+        }
+        
+        lines.Add($"  Sandbox Path: {(sandboxTempDir ?? "None")}");
+        lines.Add($"  Memory Limit: {MAX_MEMORY_MB} MB");
+        lines.Add($"  CPU Priority: Below Normal");
+        lines.Add($"  Time Limit: {MAX_PROCESS_TIME_SECONDS} seconds");
+        lines.Add("");
+    }
+    
+    private string GetSandboxMemory()
+    {
+        try
+        {
+            if (sandboxProcess != null)
+            {
+                var memory = sandboxProcess.WorkingSet64 / 1024 / 1024;
+                return $"{memory} MB";
+            }
+        }
+        catch { }
+        return "N/A";
+    }
+    
+    private string GetSandboxUptime()
+    {
+        if (sandboxActive)
+        {
+            return (DateTime.Now - sandboxStartTime).ToString(@"hh\:mm\:ss");
+        }
+        return "N/A";
+    }
+    
+    private async Task CleanupSandbox()
+    {
+        if (sandboxJob.HasValue && sandboxJob.Value != IntPtr.Zero)
+        {
+            try { TerminateJobObject(sandboxJob.Value, 1); } catch { }
+            sandboxJob = null;
+        }
+        
+        if (!string.IsNullOrEmpty(sandboxTempDir) && Directory.Exists(sandboxTempDir))
+        {
+            try { Directory.Delete(sandboxTempDir, true); } catch { }
+            sandboxTempDir = null;
+        }
+        
+        sandboxProcess = null;
+    }
+    
+    private async Task StartIPReset()
+    {
+        lines.Add("");
+        lines.Add("[WARN] ⚠️  ⚠️  ⚠️  IP WHITELIST RESET INITIATED ⚠️  ⚠️  ⚠️");
+        lines.Add("[WARN] This will revoke ALL administrator access");
+        lines.Add("[WARN] A new password will be generated and sent to support@packarcade.win");
+        lines.Add("");
+        lines.Add("Type 'CONFIRM' to proceed or type 'CANCEL' to cancel:");
+        
+        waitingForInput = true;
+        isProcessing = false;
+        StateHasChanged();
+        
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('consoleInput')?.focus();");
+        
+        string confirmInput = "";
+        while (waitingForInput)
+        {
+            await Task.Delay(100);
+        }
+        confirmInput = userInput.Trim().ToUpper();
+        
+        if (confirmInput == "CONFIRM")
+        {
+            await PerformReset();
+        }
+        else
+        {
+            lines.Add("[INFO] IP reset cancelled by user");
+        }
+    }
+    
+    private async Task PerformReset()
+    {
+        try
+        {
+            lines.Add("");
+            lines.Add("[INFO] Initiating IP whitelist reset sequence...");
+            await Task.Delay(500);
+            
+            lines.Add("[INFO] Clearing IP whitelist...");
+            IPWhitelist.Reset();
+            lines.Add("[SUCCESS] IP whitelist has been cleared");
+            
+            await Task.Delay(500);
+            
+            lines.Add("[INFO] Generating new administrator password...");
+            AdminAuth.RegeneratePassword();
+            lines.Add("[SUCCESS] New password generated and sent to support@packarcade.win");
+            
+            await Task.Delay(500);
+            
+            lines.Add("[INFO] Creating audit log entry...");
+            var auditLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "audit.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(auditLog) ?? "Data");
+            await File.AppendAllTextAsync(auditLog, 
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] IP whitelist reset by console. All IPs removed. New password generated.\n");
+            lines.Add("[SUCCESS] Audit log updated");
+            
+            lines.Add("");
+            lines.Add("[SUCCESS] ═══════════════════════════════════════════════════════════════════");
+            lines.Add("[SUCCESS]                    RESET COMPLETE");
+            lines.Add("[SUCCESS] ═══════════════════════════════════════════════════════════════════");
+            lines.Add("");
+            lines.Add("[INFO] Next steps:");
+            lines.Add("[INFO] 1. Check support@packarcade.win for the new password");
+            lines.Add("[INFO] 2. Navigate to /admin/login");
+            lines.Add("[INFO] 3. Enter the new password");
+            lines.Add("[INFO] 4. Your current IP will be automatically whitelisted");
+            lines.Add("");
+            lines.Add("Press ENTER to close console...");
+            
+            waitingForInput = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"[ERROR] Reset failed: {ex.Message}");
+            lines.Add("[ERROR] Please check system logs and try again");
+        }
+    }
+    
+    private async Task CreateBackup()
+    {
+        try
+        {
+            lines.Add("");
+            lines.Add("[INFO] Starting manual backup process...");
+            
+            if (!Directory.Exists(backupPath))
+            {
+                Directory.CreateDirectory(backupPath);
+            }
+            
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            var backupName = $"manual_backup_{timestamp}.zip";
+            var backupFilePath = Path.Combine(backupPath, backupName);
+            var projectsPath = Path.Combine(Environment.WebRootPath, "projects");
+            
+            if (!Directory.Exists(projectsPath))
+            {
+                lines.Add("[ERROR] Projects directory not found: " + projectsPath);
+                return;
+            }
+            
+            lines.Add("[INFO] Creating backup archive...");
+            System.IO.Compression.ZipFile.CreateFromDirectory(projectsPath, backupFilePath);
+            
+            var fileInfo = new FileInfo(backupFilePath);
+            lines.Add($"[SUCCESS] Backup created: {backupName}");
+            lines.Add($"[SUCCESS] Backup size: {fileInfo.Length / 1024 / 1024} MB");
+            lines.Add($"[SUCCESS] Backup path: {backupFilePath}");
+        }
+        catch (Exception ex)
+        {
+            lines.Add($"[ERROR] Backup failed: {ex.Message}");
+        }
+    }
+}

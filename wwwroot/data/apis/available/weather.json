@@ -1,0 +1,7 @@
+{
+  "Id": "weather",
+  "Name": "OpenWeatherMap",
+  "Description": "Weather data",
+  "Endpoint": "https://api.openweathermap.org",
+  "Connected": true
+}

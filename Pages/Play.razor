@@ -1,0 +1,1386 @@
+@page "/play/{Subdomain}"
+@using PackArcade2
+@using Microsoft.JSInterop
+@using System.Diagnostics
+@using System.IO
+@using System.Text.Json
+@using PackArcade2.Services
+@using System.Runtime.InteropServices
+@inject GameService GameService
+@inject ProjectService ProjectService
+@inject IWebHostEnvironment Environment
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject BackendTracker BackendTracker
+@inject ServerConnectionService ServerConnectionService
+
+<PageTitle>@(displayName) - PackArcade2</PageTitle>
+
+<div class="container-fluid p-0">
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">← Back to Home</a>
+            <span class="navbar-text text-white">
+                @displayName
+            </span>
+            @if (isServer)
+            {
+                <span class="badge bg-info ms-2">🚀 Server</span>
+                <span class="badge bg-success ms-2">@serverStatus</span>
+            }
+        </div>
+    </nav>
+
+    @if (isLoading)
+    {
+        <div class="text-center text-white mt-5">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading...</p>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger m-4">
+            @errorMessage
+        </div>
+    }
+    else if (isServer)
+    {
+        <!-- Server Display -->
+        <div class="server-container">
+            <div class="server-header bg-dark text-white p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5>🌐 Server URL</h5>
+                        <a href="@serverUrl" target="_blank" class="text-info">@serverUrl</a>
+                    </div>
+                    <div class="server-controls">
+                        @if (serverStatus == "Running")
+                        {
+                            <button class="btn btn-danger me-2" @onclick="StopServer">⏹️ Stop Server</button>
+                            <button class="btn btn-warning" @onclick="RestartServer">🔄 Restart</button>
+                        }
+                        else if (serverStatus == "Stopped" || serverStatus == "Error")
+                        {
+                            <button class="btn btn-success" @onclick="StartServer">▶️ Start Server</button>
+                        }
+                        <button class="btn btn-secondary ms-2" @onclick="RefreshStatus">🔄 Refresh</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row g-0" style="height: calc(100vh - 150px);">
+                <div class="col-md-8 p-0">
+                    <iframe id="serverFrame" src="@serverUrl" style="width: 100%; height: 100%; border: none;"></iframe>
+                </div>
+                <div class="col-md-4 bg-dark text-success p-3" style="overflow-y: auto; font-family: monospace; border-left: 1px solid #444;">
+                    <h6>📟 Server Console</h6>
+                    <div class="console-output">
+                        @foreach (var line in serverLogs)
+                        {
+                            <div>@line</div>
+                        }
+                        @if (!serverLogs.Any())
+                        {
+                            <div class="text-muted">No logs yet. Server will output here when running.</div>
+                        }
+                    </div>
+                    <div class="mt-3 pt-3 border-top border-secondary">
+                        <div class="small">
+                            <div>📊 Status: <span class="status-badge status-@serverStatus.ToLower()">@serverStatus</span></div>
+                            <div>🆔 ID: @serverId</div>
+                            @if (serverPid.HasValue)
+                            {
+                                <div>⚙️ PID: @serverPid</div>
+                            }
+                            @if (serverStartedAt.HasValue)
+                            {
+                                <div>▶️ Started: @serverStartedAt.Value.ToString("HH:mm:ss")</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (contentType == "html")
+    {
+        <iframe src="@contentUrl" style="width: 100%; height: calc(100vh - 56px); border: none;"></iframe>
+    }
+    else if (contentType == "site")
+    {
+        <div class="container-fluid p-0">
+            <!-- Site Navigation -->
+            <div class="bg-dark text-white p-2 d-flex flex-wrap align-items-center" style="border-bottom: 1px solid #444;">
+                <button class="btn btn-sm btn-primary me-2" @onclick="OpenSite">🌐 Open Site</button>
+                <button class="btn btn-sm btn-info me-2" @onclick="ShowFrontend">📄 Frontend</button>
+                
+                <!-- Framework Selection Dropdown -->
+                @if (hasBackend)
+                {
+                    <div class="ms-2 d-flex align-items-center">
+                        <span class="text-white me-2">Framework:</span>
+                        <select @bind="selectedFramework" class="form-select form-select-sm bg-dark text-white" style="width: 120px;">
+                            <option value="node">Node.js</option>
+                            <option value="python">Python</option>
+                            <option value="csharp">C#</option>
+                            <option value="php">PHP</option>
+                        </select>
+                    </div>
+                    
+                    <button class="btn btn-sm btn-warning me-2 ms-2" @onclick="StartBackend" disabled="@isBackendRunning">
+                        @(isBackendRunning ? "Backend Running..." : "🚀 Start Backend")
+                    </button>
+                    <button class="btn btn-sm btn-danger me-2" @onclick="StopBackend" disabled="@(!isBackendRunning)">
+                        ⏹️ Stop Backend
+                    </button>
+                }
+                <span class="text-muted ms-auto">@apiStatus</span>
+            </div>
+
+            <!-- Main Content Area -->
+            @if (showFrontend)
+            {
+                <iframe src="@contentUrl" style="width: 100%; height: calc(100vh - 100px); border: none;"></iframe>
+            }
+            else
+            {
+                <div class="row g-0" style="height: calc(100vh - 100px);">
+                    <div class="col-md-6 p-3 bg-dark text-white" style="overflow-y: auto;">
+                        <h5>📁 Project Files</h5>
+                        <div class="file-list mt-3">
+                            @foreach (var file in projectFiles)
+                            {
+                                <div class="file-item mb-2 p-2" style="background: #333; border-radius: 4px;">
+                                    <span class="file-icon">@GetFileIcon(file.Name)</span>
+                                    @file.Name
+                                </div>
+                            }
+                        </div>
+                        
+                        @if (hasBackend)
+                        {
+                            <div class="mt-4">
+                                <h6>🔌 API Endpoints</h6>
+                                <ul class="list-unstyled">
+                                    @if (projectFiles.Any(f => f.Name.EndsWith(".cs")))
+                                    {
+                                        <li class="mb-2">• <code>/api/hello</code> (C#)</li>
+                                        <li class="mb-2">• <code>/api/data</code> (C#)</li>
+                                    }
+                                    @if (projectFiles.Any(f => f.Name == "server.js"))
+                                    {
+                                        <li class="mb-2">• <code>/api/hello</code> (Node.js)</li>
+                                        <li class="mb-2">• <code>/api/data</code> (Node.js)</li>
+                                    }
+                                    @if (projectFiles.Any(f => f.Name == "server.py"))
+                                    {
+                                        <li class="mb-2">• <code>/api/hello</code> (Python)</li>
+                                        <li class="mb-2">• <code>/api/data</code> (Python)</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                    
+                    <div class="col-md-6 p-3 bg-dark text-success" style="overflow-y: auto; font-family: monospace; border-left: 1px solid #444;">
+                        <h6>📟 Backend Console</h6>
+                        <div class="console-output">
+                            @foreach (var line in consoleOutput)
+                            {
+                                <div>@line</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else if (contentType == "exe")
+    {
+        <div class="container mt-4">
+            <div class="row">
+                <div class="col-12 text-center mb-3">
+                    <button class="btn btn-success me-2" @onclick="RunEXE" disabled="@isRunning">
+                        @(isRunning ? "Running..." : "▶ Run EXE")
+                    </button>
+                    <button class="btn btn-danger" @onclick="StopEXE" disabled="@(!isRunning)">
+                        ⏹ Stop
+                    </button>
+                </div>
+                <div class="col-12">
+                    <div class="border bg-black" style="min-height: 600px;">
+                        <canvas id="exeCanvas" width="1024" height="768" style="width: 100%; height: auto; image-rendering: crisp-edges;"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .server-container {
+        min-height: 100vh;
+        background: #0a0e1a;
+    }
+    
+    .server-header {
+        border-bottom: 1px solid #2a2e3a;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+    
+    .status-running {
+        background: #44aa44;
+        color: white;
+    }
+    
+    .status-stopped {
+        background: #6c7293;
+        color: white;
+    }
+    
+    .status-error {
+        background: #ff4444;
+        color: white;
+    }
+    
+    .status-deployed, .status-pending {
+        background: #ffaa44;
+        color: #0a0e1a;
+    }
+    
+    .console-output {
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    
+    .file-item {
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .file-item:hover {
+        background: #444 !important;
+    }
+    
+    .file-icon {
+        margin-right: 8px;
+    }
+</style>
+
+@code {
+    [Parameter] public string? Subdomain { get; set; }
+    
+    private string displayName = "";
+    private string contentType = "";
+    private string contentUrl = "";
+    private bool isLoading = true;
+    private bool isRunning = false;
+    private string? errorMessage;
+    
+    // Server properties
+    private bool isServer = false;
+    private string serverId = "";
+    private string serverUrl = "";
+    private string serverStatus = "";
+    private int? serverPid;
+    private DateTime? serverStartedAt;
+    private List<string> serverLogs = new();
+    
+    // Site properties
+    private bool showFrontend = true;
+    private bool hasBackend = false;
+    private bool isBackendRunning = false;
+    private string apiStatus = "";
+    private string selectedFramework = "node";
+    private List<ProjectFile> projectFiles = new();
+    private List<string> consoleOutput = new List<string> { "Console ready. Select a framework and click 'Start Backend' to run your server." };
+    private Process? backendProcess = null;
+    private IntPtr? currentJob = null;
+    private string? currentTempDir = null;
+    private int currentBackendPort = 0;
+    
+    // ========== SANDBOXING PROPERTIES ==========
+    private readonly long maxMemoryMB = 256;
+    private readonly int maxProcessTimeSeconds = 0;
+    private readonly string appRunnersPath = @"D:\PackArcade\AppRunners";
+    private readonly string functionsPath = @"D:\PackArcade\Functions";
+
+    // ========== WINDOWS JOB OBJECT API ==========
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string? lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr hJob, int JobObjectInfoClass, 
+        ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION lpJobObjectInfo, uint cbJobObjectInfoLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+    private const uint JOB_OBJECT_LIMIT_PROCESS_TIME = 0x0004;
+    private const uint JOB_OBJECT_LIMIT_JOB_TIME = 0x0008;
+    private const uint JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x0100;
+    private const uint JOB_OBJECT_LIMIT_JOB_MEMORY = 0x0200;
+    private const uint BELOW_NORMAL_PRIORITY_CLASS = 0x4000;
+    private const uint CTRL_C_EVENT = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadContent();
+    }
+
+    private async Task LoadContent()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(Subdomain))
+            {
+                errorMessage = "No game or site specified";
+                isLoading = false;
+                return;
+            }
+
+            // First, check if this is a deployed server (the subdomain is a server ID)
+            var server = ServerConnectionService.GetServer(Subdomain);
+            if (server != null)
+            {
+                isServer = true;
+                serverId = server.ServerId;
+                serverUrl = $"https://{server.ServerId}.packarcade.win";
+                displayName = server.ServerName;
+                serverStatus = server.Status;
+                serverPid = server.Pid;
+                serverStartedAt = server.StartedAt;
+                serverLogs = server.LastOutput ?? new List<string>();
+                
+                isLoading = false;
+                return;
+            }
+
+            // Then try to load as a game (from GameService)
+            var gameInfo = await GameService.GetGameInfo(Subdomain);
+            if (gameInfo != null)
+            {
+                displayName = gameInfo.Name;
+                contentType = gameInfo.GameType;
+                if (contentType == "html")
+                {
+                    contentUrl = $"/games/{Subdomain}/{gameInfo.FileName}";
+                }
+                else if (contentType == "exe")
+                {
+                    // For EXE, we'll handle via JS
+                }
+                isLoading = false;
+                return;
+            }
+
+            // If not a game, try as a site project (from ProjectService)
+            var projectInfo = await ProjectService.GetProjectInfo(Subdomain);
+            if (projectInfo != null)
+            {
+                displayName = projectInfo.Name;
+                contentType = "site";
+                contentUrl = $"/projects/{Subdomain}/index.html";
+                
+                // Load project files to check for backend
+                await LoadProjectFiles();
+                
+                isLoading = false;
+                return;
+            }
+
+            // Not found
+            errorMessage = "Game or site not found";
+            isLoading = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading: {ex.Message}";
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshStatus()
+    {
+        if (isServer)
+        {
+            var server = ServerConnectionService.GetServer(serverId);
+            if (server != null)
+            {
+                serverStatus = server.Status;
+                serverPid = server.Pid;
+                serverStartedAt = server.StartedAt;
+                serverLogs = server.LastOutput ?? new List<string>();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task StartServer()
+    {
+        if (!isServer) return;
+        
+        var success = await ServerConnectionService.StartServerProcess(serverId);
+        if (success)
+        {
+            await RefreshStatus();
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('serverFrame')?.contentWindow.location.reload()");
+        }
+        else
+        {
+            await ShowAlert("Failed to start server");
+        }
+    }
+
+    private async Task StopServer()
+    {
+        if (!isServer) return;
+        
+        var success = await ServerConnectionService.StopServerProcess(serverId);
+        if (success)
+        {
+            await RefreshStatus();
+        }
+        else
+        {
+            await ShowAlert("Failed to stop server");
+        }
+    }
+
+    private async Task RestartServer()
+    {
+        if (!isServer) return;
+        
+        var success = await ServerConnectionService.RestartServerProcess(serverId);
+        if (success)
+        {
+            await RefreshStatus();
+            await Task.Delay(2000);
+            await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('serverFrame')?.contentWindow.location.reload()");
+        }
+        else
+        {
+            await ShowAlert("Failed to restart server");
+        }
+    }
+
+    private async Task ShowAlert(string message)
+    {
+        await JSRuntime.InvokeVoidAsync("alert", message);
+    }
+
+    private async Task LoadProjectFiles()
+    {
+        try
+        {
+            var files = await ProjectService.GetProjectFiles(Subdomain!);
+            projectFiles = files.Select(f => new ProjectFile
+            {
+                Name = f.Name,
+                Type = f.Type,
+                Content = f.Content
+            }).ToList();
+            
+            // Check for backend files
+            hasBackend = projectFiles.Any(f => 
+                f.Name == "server.js" || 
+                f.Name == "app.js" || 
+                f.Name == "server.py" || 
+                f.Name.EndsWith(".cs"));
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"> Error loading files: {ex.Message}");
+        }
+    }
+
+    private string GetFileIcon(string fileName)
+    {
+        if (fileName.EndsWith(".html")) return "🌐";
+        if (fileName.EndsWith(".css")) return "🎨";
+        if (fileName.EndsWith(".js")) return "⚡";
+        if (fileName.EndsWith(".cs")) return "🔷";
+        if (fileName.EndsWith(".py")) return "🐍";
+        if (fileName.EndsWith(".php")) return "🐘";
+        if (fileName.EndsWith(".json")) return "📋";
+        return "📄";
+    }
+
+    private void OpenSite()
+    {
+        Navigation.NavigateTo(contentUrl, true);
+    }
+
+    private void ShowFrontend()
+    {
+        showFrontend = true;
+    }
+
+    // ========== ENHANCED TERMINATION METHODS WITH MULTIPLE FALLBACKS ==========
+    
+    private async Task<bool> TerminateProcessWithMultipleFallbacks(int pid, int port)
+    {
+        consoleOutput.Add($"⏰ TERMINATION STARTED: Ending process PID {pid} on port {port}...");
+        
+        bool success = false;
+        
+        if (currentJob.HasValue && currentJob.Value != IntPtr.Zero)
+        {
+            try
+            {
+                success = TerminateJobObject(currentJob.Value, 1);
+                if (success)
+                {
+                    consoleOutput.Add($"✅ Method 1 SUCCESS: Terminated via Job Object (PID: {pid})");
+                    currentJob = null;
+                    return true;
+                }
+                else
+                {
+                    consoleOutput.Add($"⚠️ Method 1 FAILED: Job Object termination failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                consoleOutput.Add($"⚠️ Method 1 ERROR: {ex.Message}");
+            }
+        }
+        
+        try
+        {
+            bool ctrlSuccess = GenerateConsoleCtrlEvent(CTRL_C_EVENT, (uint)pid);
+            if (ctrlSuccess)
+            {
+                await Task.Delay(2000);
+                try
+                {
+                    var checkProcess = Process.GetProcessById(pid);
+                    if (checkProcess != null && !checkProcess.HasExited)
+                    {
+                        consoleOutput.Add($"⚠️ Ctrl+C sent but process still running after 2 seconds");
+                    }
+                    else
+                    {
+                        consoleOutput.Add($"✅ Method 2 SUCCESS: Sent Ctrl+C to process (PID: {pid})");
+                        return true;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    consoleOutput.Add($"✅ Method 2 SUCCESS: Process PID {pid} already terminated");
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"⚠️ Method 2 ERROR: {ex.Message}");
+        }
+        
+        try
+        {
+            if (backendProcess != null && !backendProcess.HasExited)
+            {
+                backendProcess.Kill();
+                await backendProcess.WaitForExitAsync();
+                if (backendProcess.HasExited)
+                {
+                    consoleOutput.Add($"✅ Method 3 SUCCESS: Process.Kill() terminated PID {pid}");
+                    return true;
+                }
+            }
+            else
+            {
+                try
+                {
+                    var proc = Process.GetProcessById(pid);
+                    proc.Kill();
+                    await proc.WaitForExitAsync();
+                    consoleOutput.Add($"✅ Method 3 SUCCESS: Process.Kill() terminated PID {pid}");
+                    return true;
+                }
+                catch (ArgumentException)
+                {
+                    consoleOutput.Add($"✅ Method 3: Process PID {pid} already gone");
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"⚠️ Method 3 ERROR: {ex.Message}");
+        }
+        
+        try
+        {
+            var taskkillPsi = new ProcessStartInfo
+            {
+                FileName = "taskkill",
+                Arguments = $"/F /PID {pid} /T",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            
+            var taskkillProcess = Process.Start(taskkillPsi);
+            if (taskkillProcess != null)
+            {
+                string output = await taskkillProcess.StandardOutput.ReadToEndAsync();
+                string error = await taskkillProcess.StandardError.ReadToEndAsync();
+                await taskkillProcess.WaitForExitAsync();
+                
+                if (taskkillProcess.ExitCode == 0)
+                {
+                    consoleOutput.Add($"✅ Method 4 SUCCESS: taskkill /F terminated PID {pid}");
+                    return true;
+                }
+                else
+                {
+                    consoleOutput.Add($"⚠️ Method 4 FAILED: taskkill exit code {taskkillProcess.ExitCode}");
+                    if (!string.IsNullOrEmpty(error)) consoleOutput.Add($"   Error: {error}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"⚠️ Method 4 ERROR: {ex.Message}");
+        }
+        
+        if (port > 0)
+        {
+            try
+            {
+                consoleOutput.Add($"🔍 Method 5: Finding processes on port {port}...");
+                
+                var netstatPsi = new ProcessStartInfo
+                {
+                    FileName = "netstat",
+                    Arguments = "-ano | findstr :" + port,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                };
+                
+                var netstatProcess = Process.Start(netstatPsi);
+                if (netstatProcess != null)
+                {
+                    string netstatOutput = await netstatProcess.StandardOutput.ReadToEndAsync();
+                    await netstatProcess.WaitForExitAsync();
+                    
+                    var pidMatches = System.Text.RegularExpressions.Regex.Matches(netstatOutput, @"\s+(\d+)\s*$", System.Text.RegularExpressions.RegexOptions.Multiline);
+                    var pids = new HashSet<int>();
+                    
+                    foreach (System.Text.RegularExpressions.Match match in pidMatches)
+                    {
+                        if (int.TryParse(match.Groups[1].Value, out int foundPid))
+                        {
+                            pids.Add(foundPid);
+                        }
+                    }
+                    
+                    foreach (var foundPid in pids)
+                    {
+                        consoleOutput.Add($"   Found PID {foundPid} using port {port}");
+                        var killByPortPsi = new ProcessStartInfo
+                        {
+                            FileName = "taskkill",
+                            Arguments = $"/F /PID {foundPid} /T",
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            CreateNoWindow = true
+                        };
+                        
+                        var killProcess = Process.Start(killByPortPsi);
+                        if (killProcess != null)
+                        {
+                            await killProcess.WaitForExitAsync();
+                            
+                            if (killProcess.ExitCode == 0)
+                            {
+                                consoleOutput.Add($"✅ Method 5 SUCCESS: Killed PID {foundPid} on port {port}");
+                                success = true;
+                            }
+                        }
+                    }
+                    
+                    if (success) return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                consoleOutput.Add($"⚠️ Method 5 ERROR: {ex.Message}");
+            }
+        }
+        
+        try
+        {
+            consoleOutput.Add($"🔧 Method 6: Using PowerShell to terminate process...");
+            
+            string processNames = selectedFramework switch
+            {
+                "node" => "node",
+                "python" => "python",
+                "csharp" => "dotnet",
+                "php" => "php",
+                _ => "node,python,dotnet,php"
+            };
+            
+            string psCommand = $"Get-Process -Name {processNames} -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -eq {pid} }} | Stop-Process -Force -ErrorAction SilentlyContinue";
+            
+            var psPsi = new ProcessStartInfo
+            {
+                FileName = "powershell",
+                Arguments = $"-Command \"{psCommand}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            
+            var psProcess = Process.Start(psPsi);
+            if (psProcess != null)
+            {
+                await psProcess.WaitForExitAsync();
+                
+                try
+                {
+                    var checkProc = Process.GetProcessById(pid);
+                    if (checkProc.HasExited)
+                    {
+                        consoleOutput.Add($"✅ Method 6 SUCCESS: PowerShell terminated PID {pid}");
+                        return true;
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    consoleOutput.Add($"✅ Method 6 SUCCESS: Process PID {pid} no longer exists");
+                    return true;
+                }
+                
+                consoleOutput.Add($"⚠️ Method 6: Process still running after PowerShell command");
+            }
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"⚠️ Method 6 ERROR: {ex.Message}");
+        }
+        
+        try
+        {
+            consoleOutput.Add($"🔧 Method 7: Using WMI to terminate process...");
+            
+            string wmiCommand = $"wmic process where \"ProcessId={pid}\" call terminate";
+            var wmiPsi = new ProcessStartInfo
+            {
+                FileName = "cmd",
+                Arguments = $"/c {wmiCommand}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            
+            var wmiProcess = Process.Start(wmiPsi);
+            if (wmiProcess != null)
+            {
+                await wmiProcess.WaitForExitAsync();
+                consoleOutput.Add($"✅ Method 7: WMI terminate command executed");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"⚠️ Method 7 ERROR: {ex.Message}");
+        }
+        
+        consoleOutput.Add($"❌ ALL TERMINATION METHODS FAILED for PID {pid}");
+        return false;
+    }
+
+    // ========== WINDOWS JOB OBJECT SANDBOXING ==========
+    private async Task<Process> StartSandboxedProcess(ProcessStartInfo startInfo, bool isLongTerm = true)
+    {
+        if (!isLongTerm)
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "PackArcade2", Guid.NewGuid().ToString());
+            Directory.CreateDirectory(tempDir);
+            currentTempDir = tempDir;
+            
+            if (Directory.Exists(startInfo.WorkingDirectory))
+            {
+                foreach (var file in Directory.GetFiles(startInfo.WorkingDirectory))
+                {
+                    File.Copy(file, Path.Combine(tempDir, Path.GetFileName(file)), true);
+                }
+                
+                string nodeModulesPath = Path.Combine(startInfo.WorkingDirectory, "node_modules");
+                if (Directory.Exists(nodeModulesPath))
+                {
+                    string tempNodeModules = Path.Combine(tempDir, "node_modules");
+                    Directory.CreateDirectory(tempNodeModules);
+                    CopyDirectory(nodeModulesPath, tempNodeModules);
+                }
+            }
+            
+            startInfo.WorkingDirectory = tempDir;
+        }
+        
+        startInfo.LoadUserProfile = false;
+        startInfo.CreateNoWindow = true;
+        startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+        
+        var process = new Process { StartInfo = startInfo };
+        process.Start();
+        
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        currentJob = job;
+        
+        uint limitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        
+        var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        {
+            BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+            {
+                LimitFlags = limitFlags,
+                PriorityClass = BELOW_NORMAL_PRIORITY_CLASS
+            },
+            ProcessMemoryLimit = new UIntPtr((ulong)maxMemoryMB * 1024 * 1024),
+            JobMemoryLimit = new UIntPtr((ulong)maxMemoryMB * 1024 * 1024 * 2)
+        };
+        
+        SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(limits));
+        AssignProcessToJobObject(job, process.Handle);
+        
+        return process;
+    }
+
+    private void CopyDirectory(string sourceDir, string destinationDir)
+    {
+        foreach (string dirPath in Directory.GetDirectories(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(dirPath.Replace(sourceDir, destinationDir));
+        }
+        
+        foreach (string filePath in Directory.GetFiles(sourceDir, "*.*", SearchOption.AllDirectories))
+        {
+            File.Copy(filePath, filePath.Replace(sourceDir, destinationDir), true);
+        }
+    }
+
+    // ========== BACKEND START METHODS ==========
+    private async Task StartBackend()
+    {
+        isBackendRunning = true;
+        apiStatus = "Starting backend...";
+        consoleOutput.Clear();
+        consoleOutput.Add($"> Starting {selectedFramework} backend for {Subdomain}...");
+        
+        try
+        {
+            var projectDir = Path.Combine(Environment.WebRootPath, "projects", Subdomain!);
+            
+            if (backendProcess != null && !backendProcess.HasExited)
+            {
+                consoleOutput.Add($"> Stopping existing server...");
+                await TerminateProcessWithMultipleFallbacks(backendProcess.Id, currentBackendPort);
+            }
+            
+            switch (selectedFramework)
+            {
+                case "node":
+                    await StartNodeBackend(projectDir);
+                    break;
+                case "python":
+                    await StartPythonBackend(projectDir);
+                    break;
+                case "csharp":
+                    await StartCSharpBackend(projectDir);
+                    break;
+                case "php":
+                    await StartPHPBackend(projectDir);
+                    break;
+                default:
+                    consoleOutput.Add($"> Unknown framework: {selectedFramework}");
+                    isBackendRunning = false;
+                    apiStatus = "Unknown framework";
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"> Error: {ex.Message}");
+            isBackendRunning = false;
+            apiStatus = "Failed to start";
+        }
+    }
+
+    private async Task StartNodeBackend(string projectDir)
+    {
+        consoleOutput.Add($"> Starting Node.js server...");
+        currentBackendPort = 3008;
+        
+        string mainFile = "server.js";
+        if (File.Exists(Path.Combine(projectDir, "app.js"))) mainFile = "app.js";
+        if (File.Exists(Path.Combine(projectDir, "index.js"))) mainFile = "index.js";
+        
+        string packagePath = Path.Combine(projectDir, "package.json");
+        if (!File.Exists(packagePath))
+        {
+            var packageJson = new
+            {
+                name = Path.GetFileName(projectDir),
+                version = "1.0.0",
+                scripts = new
+                {
+                    start = $"node {mainFile}"
+                },
+                dependencies = new
+                {
+                    express = "^4.18.2",
+                    cors = "^2.8.5"
+                }
+            };
+            
+            string json = JsonSerializer.Serialize(packageJson, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(packagePath, json);
+        }
+        
+        consoleOutput.Add($"> Installing dependencies...");
+        var npmProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "npm.cmd",
+                Arguments = "install",
+                WorkingDirectory = projectDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+        
+        npmProcess.Start();
+        string npmOutput = await npmProcess.StandardOutput.ReadToEndAsync();
+        string npmError = await npmProcess.StandardError.ReadToEndAsync();
+        await npmProcess.WaitForExitAsync();
+        
+        if (!string.IsNullOrEmpty(npmOutput)) consoleOutput.Add($"> {npmOutput.Trim()}");
+        if (!string.IsNullOrEmpty(npmError)) consoleOutput.Add($"> {npmError.Trim()}");
+        
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "node",
+            Arguments = mainFile,
+            WorkingDirectory = projectDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        
+        backendProcess = await StartSandboxedProcess(startInfo, isLongTerm: true);
+        
+        backendProcess.OutputDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.ErrorDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> ERROR: {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.BeginOutputReadLine();
+        backendProcess.BeginErrorReadLine();
+        
+        try
+        {
+            BackendTracker.RegisterBackend(Subdomain!, currentBackendPort, "node");
+            consoleOutput.Add($"> Registered with reverse proxy on port {currentBackendPort}");
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"> Warning: Failed to register with reverse proxy: {ex.Message}");
+        }
+        
+        consoleOutput.Add($"> Node.js server started on PID: {backendProcess.Id} with Windows Job Object sandboxing");
+        consoleOutput.Add($"> API available at: https://{Subdomain}.packarcade.win/api/hello");
+        apiStatus = "Running Node.js";
+    }
+
+    private async Task StartPythonBackend(string projectDir)
+    {
+        consoleOutput.Add($"> Starting Python server...");
+        currentBackendPort = 5000;
+        
+        consoleOutput.Add($"> Checking for Flask...");
+        var pipProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "pip",
+                Arguments = "install flask flask-cors",
+                WorkingDirectory = projectDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+        
+        pipProcess.Start();
+        string pipOutput = await pipProcess.StandardOutput.ReadToEndAsync();
+        string pipError = await pipProcess.StandardError.ReadToEndAsync();
+        await pipProcess.WaitForExitAsync();
+        
+        if (!string.IsNullOrEmpty(pipOutput)) consoleOutput.Add($"> {pipOutput.Trim()}");
+        if (!string.IsNullOrEmpty(pipError)) consoleOutput.Add($"> {pipError.Trim()}");
+        
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "python",
+            Arguments = "server.py",
+            WorkingDirectory = projectDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        
+        backendProcess = await StartSandboxedProcess(startInfo, isLongTerm: true);
+        
+        backendProcess.OutputDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.ErrorDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> ERROR: {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.BeginOutputReadLine();
+        backendProcess.BeginErrorReadLine();
+        
+        consoleOutput.Add($"> Python server started on PID: {backendProcess.Id} with Windows Job Object sandboxing");
+        consoleOutput.Add($"> API available at: https://{Subdomain}.packarcade.win/api/hello");
+        apiStatus = "Running Python";
+    }
+
+    private async Task StartCSharpBackend(string projectDir)
+    {
+        consoleOutput.Add($"> Starting C# server...");
+        currentBackendPort = 5005;
+        
+        string programPath = Path.Combine(projectDir, "Program.cs");
+        if (!File.Exists(programPath))
+        {
+            string programContent = @"using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls(""http://*:5005"");
+
+var app = builder.Build();
+
+app.MapGet(""/"", () => ""Hello World"");
+app.MapGet(""/api/hello"", () => Results.Json(new { message = ""Hello from C#!"" }));
+
+app.Run();";
+            await File.WriteAllTextAsync(programPath, programContent);
+            consoleOutput.Add($"> Created default Program.cs");
+        }
+        
+        string csprojPath = Path.Combine(projectDir, "api.csproj");
+        if (!File.Exists(csprojPath))
+        {
+            string csprojContent = @"<Project Sdk=""Microsoft.NET.Sdk.Web"">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>";
+            await File.WriteAllTextAsync(csprojPath, csprojContent);
+            consoleOutput.Add($"> Created api.csproj");
+        }
+        
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = "run",
+            WorkingDirectory = projectDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        
+        backendProcess = await StartSandboxedProcess(startInfo, isLongTerm: true);
+        
+        backendProcess.OutputDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.ErrorDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> ERROR: {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.BeginOutputReadLine();
+        backendProcess.BeginErrorReadLine();
+        
+        try
+        {
+            BackendTracker.RegisterBackend(Subdomain!, currentBackendPort, "csharp");
+            consoleOutput.Add($"> Registered with reverse proxy on port {currentBackendPort}");
+        }
+        catch (Exception ex)
+        {
+            consoleOutput.Add($"> Warning: Failed to register with reverse proxy: {ex.Message}");
+        }
+        
+        consoleOutput.Add($"> C# server started on PID: {backendProcess.Id} with Windows Job Object sandboxing");
+        consoleOutput.Add($"> API available at: https://{Subdomain}.packarcade.win/api/hello");
+        apiStatus = "Running C#";
+    }
+
+    private async Task StartPHPBackend(string projectDir)
+    {
+        consoleOutput.Add($"> Starting PHP server...");
+        currentBackendPort = 8000;
+        
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "php",
+            Arguments = "-S localhost:8000",
+            WorkingDirectory = projectDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        
+        backendProcess = await StartSandboxedProcess(startInfo, isLongTerm: true);
+        
+        backendProcess.OutputDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.ErrorDataReceived += (s, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+            {
+                InvokeAsync(() =>
+                {
+                    consoleOutput.Add($"> ERROR: {e.Data}");
+                    StateHasChanged();
+                });
+            }
+        };
+        
+        backendProcess.BeginOutputReadLine();
+        backendProcess.BeginErrorReadLine();
+        
+        consoleOutput.Add($"> PHP server started on PID: {backendProcess.Id} with Windows Job Object sandboxing");
+        consoleOutput.Add($"> API available at: https://{Subdomain}.packarcade.win");
+        apiStatus = "Running PHP";
+    }
+
+    private async Task StopBackend()
+    {
+        consoleOutput.Add("");
+        consoleOutput.Add("⏹️ Stopping backend server...");
+        
+        if (backendProcess != null && !backendProcess.HasExited)
+        {
+            bool terminated = await TerminateProcessWithMultipleFallbacks(backendProcess.Id, currentBackendPort);
+            
+            if (terminated)
+            {
+                consoleOutput.Add("✅ Backend server stopped successfully.");
+                
+                try
+                {
+                    BackendTracker.UnregisterBackend(Subdomain!);
+                    consoleOutput.Add($"> Unregistered from reverse proxy");
+                }
+                catch { }
+            }
+            else
+            {
+                consoleOutput.Add("⚠️ Backend server may not have stopped completely.");
+            }
+            
+            backendProcess = null;
+        }
+        else
+        {
+            consoleOutput.Add("> No backend server running.");
+        }
+        
+        if (!string.IsNullOrEmpty(currentTempDir) && Directory.Exists(currentTempDir))
+        {
+            try
+            {
+                Directory.Delete(currentTempDir, true);
+                consoleOutput.Add("> Temp folder cleaned up");
+            }
+            catch { }
+            currentTempDir = null;
+        }
+        
+        isBackendRunning = false;
+        currentBackendPort = 0;
+        apiStatus = "Stopped";
+        StateHasChanged();
+    }
+
+    private async Task RunEXE()
+    {
+        isRunning = true;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("runEXEGame", Subdomain, "game.exe");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to run EXE: {ex.Message}";
+            isRunning = false;
+        }
+    }
+
+    private async Task StopEXE()
+    {
+        await JSRuntime.InvokeVoidAsync("stopEXEGame");
+        isRunning = false;
+    }
+
+    public void Dispose()
+    {
+        if (!string.IsNullOrEmpty(currentTempDir) && Directory.Exists(currentTempDir))
+        {
+            try
+            {
+                Directory.Delete(currentTempDir, true);
+            }
+            catch { }
+        }
+    }
+
+    private class ProjectFile
+    {
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string Content { get; set; } = "";
+    }
+}

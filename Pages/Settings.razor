@@ -1,0 +1,152 @@
+@page "/settings"
+@using Microsoft.JSInterop
+@using System.Text.Json
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+<PageTitle>Settings - PackArcade2</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="text-white">⚙️ Settings</h1>
+            <p class="text-muted">Customize your PackArcade2 experience.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h5 class="mb-0">Preferences</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Theme</label>
+                        <select @bind="settings.Theme" class="form-select bg-secondary text-white">
+                            <option value="dark">Dark (default)</option>
+                            <option value="light">Light</option>
+                            <option value="auto">Auto (system)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Default Editor Font Size</label>
+                        <input type="number" @bind="settings.EditorFontSize" class="form-control bg-secondary text-white" min="8" max="24" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Default Project Type</label>
+                        <select @bind="settings.DefaultProjectType" class="form-select bg-secondary text-white">
+                            <option value="html">HTML Site</option>
+                            <option value="exe">EXE Game</option>
+                            <option value="python">Python Backend</option>
+                            <option value="csharp">C# API</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" @bind="settings.AutoSave" class="form-check-input" id="autoSave" />
+                        <label class="form-check-label" for="autoSave">Enable auto-save in editor</label>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" @bind="settings.ShowLineNumbers" class="form-check-input" id="lineNumbers" />
+                        <label class="form-check-label" for="lineNumbers">Show line numbers</label>
+                    </div>
+
+                    <button class="btn btn-primary me-2" @onclick="SaveSettings">Save Settings</button>
+                    <button class="btn btn-secondary" @onclick="ResetSettings">Reset to Defaults</button>
+
+                    @if (!string.IsNullOrEmpty(saveMessage))
+                    {
+                        <div class="alert alert-success mt-3">@saveMessage</div>
+                    }
+                </div>
+            </div>
+
+            <div class="card bg-dark text-white mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0">About</h5>
+                </div>
+                <div class="card-body">
+                    <p>PackArcade2 v1.0</p>
+                    <p>Your all-in-one platform for creating and hosting games and websites.</p>
+                    <p><a href="https://packarcade.win" target="_blank" class="text-info">packarcade.win</a></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h5 class="mb-0">Current Settings</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Theme:</strong> @settings.Theme</p>
+                    <p><strong>Font Size:</strong> @settings.EditorFontSize</p>
+                    <p><strong>Default Project:</strong> @settings.DefaultProjectType</p>
+                    <p><strong>Auto-save:</strong> @(settings.AutoSave ? "On" : "Off")</p>
+                    <p><strong>Line Numbers:</strong> @(settings.ShowLineNumbers ? "On" : "Off")</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private UserSettings settings = new();
+    private string saveMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettings();
+    }
+
+    private async Task LoadSettings()
+    {
+        try
+        {
+            var json = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "packarcade2_settings");
+            if (!string.IsNullOrEmpty(json))
+            {
+                settings = JsonSerializer.Deserialize<UserSettings>(json) ?? new UserSettings();
+            }
+        }
+        catch
+        {
+            // Use defaults if loading fails
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(settings);
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "packarcade2_settings", json);
+            saveMessage = "Settings saved successfully!";
+            StateHasChanged();
+            await Task.Delay(2000);
+            saveMessage = "";
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Error saving settings: {ex.Message}";
+        }
+    }
+
+    private async Task ResetSettings()
+    {
+        settings = new UserSettings();
+        await SaveSettings();
+    }
+
+    private class UserSettings
+    {
+        public string Theme { get; set; } = "dark";
+        public int EditorFontSize { get; set; } = 14;
+        public string DefaultProjectType { get; set; } = "html";
+        public bool AutoSave { get; set; } = false;
+        public bool ShowLineNumbers { get; set; } = true;
+    }
+}

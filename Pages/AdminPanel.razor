@@ -1,0 +1,940 @@
+@page "/admin/panel"
+@attribute [AdminAuthorize]
+@using PackArcade2.Services
+@using System.IO
+@using System.Diagnostics
+@using System.Text
+@using Microsoft.AspNetCore.Hosting
+@inject AdminAuthenticationService AuthService
+@inject NavigationManager Navigation
+@inject IWebHostEnvironment WebEnv
+@inject IJSRuntime JSRuntime
+@inject ILogger<AdminPanel> Logger
+@inject IPWhitelistService IPWhitelist
+
+<PageTitle>Admin Panel - PackArcade2</PageTitle>
+
+<div class="admin-container">
+    <div class="admin-header">
+        <div class="admin-title">
+            <span class="icon">🔒</span>
+            PackArcade2 Administrator Console
+        </div>
+        <div class="admin-actions">
+            <button class="btn-reset-ip" @onclick="ShowResetConsole">
+                <span>⚠️</span> Reset IP Whitelist
+            </button>
+            <button class="btn-logout" @onclick="Logout">
+                <span>🚪</span> Logout
+            </button>
+        </div>
+    </div>
+    
+    <div class="admin-content">
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">@projectCount</div>
+                <div class="stat-label">Projects</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">@gameCount</div>
+                <div class="stat-label">Games</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">@whitelistedIPs</div>
+                <div class="stat-label">Whitelisted IPs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">@uptime</div>
+                <div class="stat-label">Uptime (hours)</div>
+            </div>
+        </div>
+
+        <!-- Two Column Layout -->
+        <div class="admin-grid">
+            <!-- File Explorer -->
+            <div class="panel-card file-explorer-card">
+                <div class="card-header">
+                    <h3>📁 File Explorer</h3>
+                    <div class="path-bar">
+                        <span class="path-text">@currentPath</span>
+                        <button class="btn-icon" @onclick="GoUp" title="Go Up">⬆</button>
+                        <button class="btn-icon" @onclick="RefreshDirectory" title="Refresh">⟳</button>
+                    </div>
+                </div>
+                <div class="file-list">
+                    @if (isLoadingFiles)
+                    {
+                        <div class="loading">Loading...</div>
+                    }
+                    else
+                    {
+                        @foreach (var item in directoryItems)
+                        {
+                            <div class="file-item" @onclick="() => NavigateTo(item)">
+                                <span class="file-icon">@(item.IsDirectory ? "📁" : GetFileIcon(item.Name))</span>
+                                <span class="file-name">@item.Name</span>
+                                @if (!item.IsDirectory)
+                                {
+                                    <span class="file-size">@FormatFileSize(item.Size)</span>
+                                    <button class="btn-icon-small" @onclick.stop="() => EditFile(item)">✏️</button>
+                                    <button class="btn-icon-small" @onclick.stop="() => DeleteFile(item)">🗑</button>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- System Console -->
+            <div class="panel-card console-card">
+                <div class="card-header">
+                    <h3>📟 System Console</h3>
+                    <button class="btn-icon" @onclick="ClearConsole" title="Clear">🗑</button>
+                </div>
+                <div class="console-output" @ref="consoleRef">
+                    @foreach (var line in consoleLines.TakeLast(100))
+                    {
+                        if (line.StartsWith("ERROR:"))
+                        {
+                            <div class="console-error">@line</div>
+                        }
+                        else if (line.StartsWith("WARN:"))
+                        {
+                            <div class="console-warn">@line</div>
+                        }
+                        else if (line.StartsWith("SUCCESS:"))
+                        {
+                            <div class="console-success">@line</div>
+                        }
+                        else
+                        {
+                            <div>@line</div>
+                        }
+                    }
+                </div>
+                <div class="console-input">
+                    <span class="prompt">$></span>
+                    <input @bind="commandInput" @onkeypress="ExecuteCommandOnEnter" placeholder="Enter command..." />
+                    <button class="btn-sm" @onclick="ExecuteCommand">Run</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Server Info -->
+        <div class="info-card">
+            <h3>📊 Server Information</h3>
+            <div class="info-grid">
+                <div><strong>Server Time:</strong> @DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                <div><strong>OS:</strong> @System.Runtime.InteropServices.RuntimeInformation.OSDescription</div>
+                <div><strong>Framework:</strong> @System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription</div>
+                <div><strong>Memory Used:</strong> @GetMemoryUsage()</div>
+                <div><strong>Root Path:</strong> @rootPath</div>
+                <div><strong>Password File:</strong> @passwordFilePath</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (showResetConsole)
+{
+    <div class="console-overlay">
+        <ResetIPConsole OnComplete="@CloseResetConsole" />
+    </div>
+}
+
+@if (showFileEditor)
+{
+    <div class="editor-overlay">
+        <div class="editor-modal">
+            <div class="editor-header">
+                <h4>Editing: @editingFileName</h4>
+                <button class="close-btn" @onclick="CloseEditor">✖</button>
+            </div>
+            <textarea @bind="editingContent" class="editor-textarea" @onkeydown="HandleEditorKeydown"></textarea>
+            <div class="editor-footer">
+                <button class="btn-primary" @onclick="SaveFile">💾 Save</button>
+                <button class="btn-secondary" @onclick="CloseEditor">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .admin-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0e1a 0%, #0f111a 100%);
+        font-family: 'Segoe UI', monospace;
+    }
+    .admin-header {
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid #2a2e3a;
+        padding: 16px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+    .admin-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #00ffaa;
+        font-family: monospace;
+    }
+    .admin-actions {
+        display: flex;
+        gap: 12px;
+    }
+    .btn-reset-ip, .btn-logout {
+        background: transparent;
+        border: 1px solid #2a2e3a;
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-family: monospace;
+        transition: all 0.2s;
+    }
+    .btn-reset-ip:hover {
+        background: rgba(255,100,0,0.2);
+        border-color: #ffaa44;
+        color: #ffaa44;
+    }
+    .btn-logout:hover {
+        background: rgba(255,0,0,0.2);
+        border-color: #ff4444;
+        color: #ff4444;
+    }
+    .admin-content {
+        padding: 24px;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .stat-card {
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        border: 1px solid #2a2e3a;
+    }
+    .stat-value {
+        font-size: 32px;
+        font-weight: bold;
+        color: #00ffaa;
+    }
+    .stat-label {
+        color: #6c7293;
+        margin-top: 8px;
+    }
+    .admin-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+    .panel-card {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        border: 1px solid #2a2e3a;
+        overflow: hidden;
+    }
+    .card-header {
+        padding: 12px 16px;
+        background: rgba(0,0,0,0.3);
+        border-bottom: 1px solid #2a2e3a;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .card-header h3 {
+        margin: 0;
+        color: #00ffaa;
+        font-size: 16px;
+    }
+    .path-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #6c7293;
+    }
+    .path-text {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .btn-icon, .btn-icon-small {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        color: #6c7293;
+    }
+    .btn-icon:hover, .btn-icon-small:hover {
+        background: rgba(255,255,255,0.1);
+        color: #00ffaa;
+    }
+    .file-list {
+        height: 400px;
+        overflow-y: auto;
+        padding: 8px;
+    }
+    .file-item {
+        padding: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.2s;
+    }
+    .file-item:hover {
+        background: rgba(255,255,255,0.05);
+    }
+    .file-icon {
+        font-size: 18px;
+    }
+    .file-name {
+        flex: 1;
+        color: #fff;
+    }
+    .file-size {
+        font-size: 12px;
+        color: #6c7293;
+    }
+    .console-card {
+        display: flex;
+        flex-direction: column;
+    }
+    .console-output {
+        height: 400px;
+        overflow-y: auto;
+        padding: 12px;
+        font-family: monospace;
+        font-size: 12px;
+        background: #00000040;
+        color: #00ffaa;
+    }
+    .console-error {
+        color: #ff4444;
+    }
+    .console-warn {
+        color: #ffaa44;
+    }
+    .console-success {
+        color: #44ff44;
+    }
+    .console-input {
+        display: flex;
+        gap: 8px;
+        padding: 12px;
+        border-top: 1px solid #2a2e3a;
+        background: rgba(0,0,0,0.3);
+    }
+    .console-input .prompt {
+        color: #00ffaa;
+    }
+    .console-input input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: #fff;
+        font-family: monospace;
+        outline: none;
+    }
+    .btn-sm {
+        background: #2a2e3a;
+        border: none;
+        padding: 4px 12px;
+        border-radius: 4px;
+        color: #fff;
+        cursor: pointer;
+    }
+    .btn-sm:hover {
+        background: #3a3e4a;
+    }
+    .info-card {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #2a2e3a;
+    }
+    .info-card h3 {
+        color: #00ffaa;
+        margin-bottom: 16px;
+    }
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 12px;
+    }
+    .info-grid div {
+        color: #ccc;
+        font-size: 13px;
+    }
+    .console-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.95);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(8px);
+    }
+    .editor-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.95);
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .editor-modal {
+        width: 80vw;
+        height: 80vh;
+        background: #1a1e2a;
+        border-radius: 12px;
+        border: 1px solid #00ffaa;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .editor-header {
+        padding: 12px 16px;
+        background: #0f111a;
+        border-bottom: 1px solid #2a2e3a;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .editor-header h4 {
+        margin: 0;
+        color: #00ffaa;
+    }
+    .close-btn {
+        background: transparent;
+        border: none;
+        color: #ff4444;
+        font-size: 20px;
+        cursor: pointer;
+    }
+    .editor-textarea {
+        flex: 1;
+        background: #0a0e1a;
+        color: #00ffaa;
+        font-family: monospace;
+        padding: 16px;
+        border: none;
+        resize: none;
+        outline: none;
+        font-size: 13px;
+    }
+    .editor-footer {
+        padding: 12px;
+        border-top: 1px solid #2a2e3a;
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+    }
+    .btn-primary {
+        background: #00ffaa;
+        color: #0a0e1a;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .btn-secondary {
+        background: #2a2e3a;
+        color: #fff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+    }
+    .loading {
+        text-align: center;
+        color: #6c7293;
+        padding: 20px;
+    }
+    @@media (max-width: 768px) {
+        .admin-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    private bool showResetConsole = false;
+    private bool showFileEditor = false;
+    private bool isLoadingFiles = false;
+    private string currentPath = "";
+    private string rootPath = "";
+    private string editingFileName = "";
+    private string editingContent = "";
+    private string editingFilePath = "";
+    private List<FileSystemItem> directoryItems = new();
+    private List<string> consoleLines = new();
+    private string commandInput = "";
+    private ElementReference consoleRef;
+    private DateTime startTime = DateTime.Now;
+    
+    private int projectCount => GetDirectoryCount(Path.Combine(rootPath, "wwwroot", "projects"));
+    private int gameCount => GetDirectoryCount(Path.Combine(rootPath, "wwwroot", "games"));
+    private int whitelistedIPs => IPWhitelist.GetAllowedIPs().Count;
+    private double uptime => (DateTime.Now - startTime).TotalHours;
+    private string passwordFilePath => Path.Combine(rootPath, "bin", "Debug", "net8.0-windows", "Data", "current_password.txt");
+
+    protected override void OnInitialized()
+    {
+        rootPath = @"D:\PackArcade";
+        currentPath = rootPath;
+        consoleLines.Add($"SUCCESS: Admin panel initialized at {DateTime.Now}");
+        consoleLines.Add($"INFO: Root path: {rootPath}");
+        consoleLines.Add("INFO: Type 'help' for available commands");
+        LoadDirectory();
+    }
+
+    private int GetDirectoryCount(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                return Directory.GetDirectories(path).Length;
+        }
+        catch { }
+        return 0;
+    }
+
+    private string GetMemoryUsage()
+    {
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            var memory = process.WorkingSet64 / 1024 / 1024;
+            return $"{memory} MB";
+        }
+        catch
+        {
+            return "N/A";
+        }
+    }
+
+    private string GetFileIcon(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLower();
+        return ext switch
+        {
+            ".html" => "🌐",
+            ".css" => "🎨",
+            ".js" => "⚡",
+            ".cs" => "🔷",
+            ".py" => "🐍",
+            ".php" => "🐘",
+            ".json" => "📋",
+            ".txt" => "📄",
+            ".log" => "📝",
+            ".zip" => "📦",
+            ".exe" => "⚙️",
+            ".razor" => "🎯",
+            ".csproj" => "📁",
+            _ => "📄"
+        };
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private void LoadDirectory()
+    {
+        try
+        {
+            isLoadingFiles = true;
+            StateHasChanged();
+            
+            directoryItems.Clear();
+            var dir = new DirectoryInfo(currentPath);
+            
+            foreach (var subDir in dir.GetDirectories())
+            {
+                directoryItems.Add(new FileSystemItem
+                {
+                    Name = subDir.Name,
+                    FullPath = subDir.FullName,
+                    IsDirectory = true,
+                    Size = 0
+                });
+            }
+            
+            foreach (var file in dir.GetFiles())
+            {
+                directoryItems.Add(new FileSystemItem
+                {
+                    Name = file.Name,
+                    FullPath = file.FullName,
+                    IsDirectory = false,
+                    Size = file.Length
+                });
+            }
+            
+            directoryItems = directoryItems.OrderByDescending(x => x.IsDirectory)
+                .ThenBy(x => x.Name)
+                .ToList();
+                
+            consoleLines.Add($"INFO: Loaded {directoryItems.Count} items from {currentPath}");
+        }
+        catch (Exception ex)
+        {
+            consoleLines.Add($"ERROR: Failed to load directory: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingFiles = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RefreshDirectory()
+    {
+        LoadDirectory();
+    }
+
+    private void GoUp()
+    {
+        var parent = Directory.GetParent(currentPath);
+        if (parent != null && parent.FullName.Length >= rootPath.Length)
+        {
+            currentPath = parent.FullName;
+            LoadDirectory();
+        }
+        else
+        {
+            consoleLines.Add("WARN: Already at root directory");
+        }
+    }
+
+    private void NavigateTo(FileSystemItem item)
+    {
+        if (item.IsDirectory)
+        {
+            currentPath = item.FullPath;
+            LoadDirectory();
+        }
+    }
+
+    private void EditFile(FileSystemItem item)
+    {
+        try
+        {
+            editingFilePath = item.FullPath;
+            editingFileName = item.Name;
+            editingContent = File.ReadAllText(item.FullPath);
+            showFileEditor = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            consoleLines.Add($"ERROR: Failed to open file: {ex.Message}");
+        }
+    }
+
+    private async Task SaveFile()
+    {
+        try
+        {
+            await File.WriteAllTextAsync(editingFilePath, editingContent);
+            consoleLines.Add($"SUCCESS: Saved {editingFileName}");
+            CloseEditor();
+            LoadDirectory();
+        }
+        catch (Exception ex)
+        {
+            consoleLines.Add($"ERROR: Failed to save file: {ex.Message}");
+        }
+    }
+
+    private void DeleteFile(FileSystemItem item)
+    {
+        try
+        {
+            File.Delete(item.FullPath);
+            consoleLines.Add($"SUCCESS: Deleted {item.Name}");
+            LoadDirectory();
+        }
+        catch (Exception ex)
+        {
+            consoleLines.Add($"ERROR: Failed to delete file: {ex.Message}");
+        }
+    }
+
+    private void CloseEditor()
+    {
+        showFileEditor = false;
+        editingContent = "";
+        editingFileName = "";
+        editingFilePath = "";
+        StateHasChanged();
+    }
+
+    private void HandleEditorKeydown(KeyboardEventArgs e)
+    {
+        if (e.Key == "s" && e.CtrlKey)
+        {
+            _ = SaveFile();
+        }
+    }
+
+    private void ClearConsole()
+    {
+        consoleLines.Clear();
+        consoleLines.Add("Console cleared");
+        StateHasChanged();
+    }
+
+    private async Task ExecuteCommand()
+    {
+        if (string.IsNullOrWhiteSpace(commandInput)) return;
+        
+        var input = commandInput.Trim();
+        consoleLines.Add($">>> {input}");
+        commandInput = "";
+        
+        await ProcessCommand(input);
+        StateHasChanged();
+        
+        await JSRuntime.InvokeVoidAsync("eval", "document.querySelector('.console-output')?.scrollTo(0, document.querySelector('.console-output')?.scrollHeight);");
+    }
+
+    private async Task ExecuteCommandOnEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ExecuteCommand();
+        }
+    }
+
+    private async Task ProcessCommand(string input)
+    {
+        var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var cmd = parts[0].ToLower();
+        var args = parts.Skip(1).ToArray();
+
+        switch (cmd)
+        {
+            case "help":
+                consoleLines.Add("Available commands:");
+                consoleLines.Add("  help           - Show this help");
+                consoleLines.Add("  clear          - Clear console");
+                consoleLines.Add("  ls             - List current directory");
+                consoleLines.Add("  cd <path>      - Change directory");
+                consoleLines.Add("  pwd            - Show current path");
+                consoleLines.Add("  cat <file>     - Show file content");
+                consoleLines.Add("  mkdir <name>   - Create directory");
+                consoleLines.Add("  rm <file>      - Delete file");
+                consoleLines.Add("  ip-list        - Show whitelisted IPs");
+                consoleLines.Add("  ip-reset       - Reset IP whitelist");
+                consoleLines.Add("  stats          - Show system stats");
+                consoleLines.Add("  restart        - Restart server");
+                break;
+                
+            case "clear":
+                ClearConsole();
+                break;
+                
+            case "ls":
+                foreach (var item in directoryItems.Take(50))
+                {
+                    consoleLines.Add($"  {(item.IsDirectory ? "📁" : GetFileIcon(item.Name))} {item.Name}{(item.IsDirectory ? "/" : "")} {(item.IsDirectory ? "" : FormatFileSize(item.Size))}");
+                }
+                if (directoryItems.Count > 50)
+                    consoleLines.Add($"  ... and {directoryItems.Count - 50} more items");
+                break;
+                
+            case "cd":
+                if (args.Length == 0)
+                {
+                    currentPath = rootPath;
+                }
+                else
+                {
+                    var newPath = Path.Combine(currentPath, args[0]);
+                    if (Directory.Exists(newPath))
+                    {
+                        currentPath = newPath;
+                    }
+                    else
+                    {
+                        consoleLines.Add($"ERROR: Directory not found: {args[0]}");
+                        return;
+                    }
+                }
+                LoadDirectory();
+                consoleLines.Add($"Changed to: {currentPath}");
+                break;
+                
+            case "pwd":
+                consoleLines.Add(currentPath);
+                break;
+                
+            case "cat":
+                if (args.Length == 0)
+                {
+                    consoleLines.Add("ERROR: No file specified");
+                    return;
+                }
+                var filePath = Path.Combine(currentPath, args[0]);
+                if (File.Exists(filePath))
+                {
+                    var content = await File.ReadAllTextAsync(filePath);
+                    var lines = content.Split('\n');
+                    foreach (var line in lines.Take(20))
+                    {
+                        consoleLines.Add($"  {line.TrimEnd()}");
+                    }
+                    if (lines.Length > 20)
+                        consoleLines.Add($"  ... and {lines.Length - 20} more lines");
+                }
+                else
+                {
+                    consoleLines.Add($"ERROR: File not found: {args[0]}");
+                }
+                break;
+                
+            case "mkdir":
+                if (args.Length == 0)
+                {
+                    consoleLines.Add("ERROR: No directory name specified");
+                    return;
+                }
+                var newDir = Path.Combine(currentPath, args[0]);
+                Directory.CreateDirectory(newDir);
+                consoleLines.Add($"SUCCESS: Created directory {args[0]}");
+                LoadDirectory();
+                break;
+                
+            case "rm":
+                if (args.Length == 0)
+                {
+                    consoleLines.Add("ERROR: No file specified");
+                    return;
+                }
+                var delPath = Path.Combine(currentPath, args[0]);
+                if (File.Exists(delPath))
+                {
+                    File.Delete(delPath);
+                    consoleLines.Add($"SUCCESS: Deleted {args[0]}");
+                    LoadDirectory();
+                }
+                else
+                {
+                    consoleLines.Add($"ERROR: File not found: {args[0]}");
+                }
+                break;
+                
+            case "ip-list":
+                var ips = IPWhitelist.GetAllowedIPs();
+                if (ips.Count == 0)
+                {
+                    consoleLines.Add("No IPs are currently whitelisted");
+                }
+                else
+                {
+                    consoleLines.Add($"Whitelisted IPs ({ips.Count}):");
+                    foreach (var ip in ips)
+                    {
+                        consoleLines.Add($"  {ip}");
+                    }
+                }
+                break;
+                
+            case "ip-reset":
+                consoleLines.Add("WARN: This will reset the IP whitelist. Use the Reset IP Whitelist button to confirm.");
+                break;
+                
+            case "stats":
+                consoleLines.Add($"Projects: {projectCount}");
+                consoleLines.Add($"Games: {gameCount}");
+                consoleLines.Add($"Whitelisted IPs: {whitelistedIPs}");
+                consoleLines.Add($"Uptime: {uptime:F1} hours");
+                consoleLines.Add($"Memory: {GetMemoryUsage()}");
+                consoleLines.Add($"Current Path: {currentPath}");
+                break;
+                
+            case "restart":
+                consoleLines.Add("WARN: Restarting server...");
+                await Task.Delay(1000);
+                var currentExe = Process.GetCurrentProcess().MainModule?.FileName;
+                if (!string.IsNullOrEmpty(currentExe))
+                {
+                    Process.Start(currentExe);
+                    System.Environment.Exit(0);
+                }
+                else
+                {
+                    consoleLines.Add("ERROR: Could not determine executable path for restart");
+                }
+                break;
+                
+            default:
+                consoleLines.Add($"ERROR: Unknown command: {cmd}. Type 'help' for available commands.");
+                break;
+        }
+    }
+
+    private void ShowResetConsole()
+    {
+        showResetConsole = true;
+        StateHasChanged();
+    }
+    
+    private void CloseResetConsole()
+    {
+        showResetConsole = false;
+        LoadDirectory();
+        StateHasChanged();
+    }
+    
+    private async Task Logout()
+    {
+        await AuthService.SignOut();
+        Navigation.NavigateTo("/", true);
+    }
+
+    private class FileSystemItem
+    {
+        public string Name { get; set; } = "";
+        public string FullPath { get; set; } = "";
+        public bool IsDirectory { get; set; }
+        public long Size { get; set; }
+    }
+}

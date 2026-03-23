@@ -1,0 +1,1305 @@
+@page "/world-game"
+@using System.Text.Json
+@using System.Text
+@using Microsoft.JSInterop
+@using Newtonsoft.Json
+@using Microsoft.ML
+@using Microsoft.ML.Transforms
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<PageTitle>🌍 Tonit: World Creation & Destruction - PackArcade2</PageTitle>
+
+<style>
+    .world-game-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0a2a 0%, #1a0033 100%);
+        padding: 20px;
+        font-family: 'Courier New', monospace;
+        color: #fff;
+        outline: none;
+    }
+    
+    .game-header {
+        text-align: center;
+        margin-bottom: 30px;
+        border-bottom: 2px solid #ff00aa;
+        padding-bottom: 20px;
+    }
+    
+    .game-header h1 {
+        color: #ff00aa;
+        text-shadow: 0 0 10px rgba(255,0,170,0.5);
+        font-size: 48px;
+    }
+    
+    .key-hint {
+        background: #333;
+        padding: 4px 12px;
+        border-radius: 8px;
+        font-weight: bold;
+        color: #ffaa00;
+        margin: 0 4px;
+    }
+    
+    .stats-bar {
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        margin-top: 15px;
+        background: rgba(0,0,0,0.5);
+        padding: 10px;
+        border-radius: 12px;
+    }
+    
+    .game-main {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        gap: 20px;
+    }
+    
+    .world-list {
+        background: rgba(0,0,0,0.6);
+        border-radius: 16px;
+        padding: 15px;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+    
+    .world-card {
+        background: rgba(50,0,80,0.5);
+        border: 1px solid #ff00aa;
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .world-card:hover {
+        background: rgba(255,0,170,0.2);
+        transform: translateX(5px);
+    }
+    
+    .world-card.selected {
+        background: rgba(255,0,170,0.3);
+        border: 2px solid #ffaa00;
+    }
+    
+    .world-name {
+        font-size: 18px;
+        font-weight: bold;
+        color: #ffaa00;
+    }
+    
+    .world-stats {
+        font-size: 11px;
+        display: flex;
+        gap: 10px;
+        margin: 5px 0;
+    }
+    
+    .game-area {
+        background: rgba(0,0,0,0.6);
+        border-radius: 16px;
+        padding: 20px;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+    
+    .builder-controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+    }
+    
+    .builder-btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+        transition: all 0.3s;
+    }
+    
+    .builder-btn:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 10px rgba(102,126,234,0.5);
+    }
+    
+    .builder-btn.danger {
+        background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+    }
+    
+    .world-visualization {
+        text-align: center;
+        margin: 20px 0;
+        background: #000;
+        border-radius: 12px;
+        padding: 10px;
+    }
+    
+    .world-map {
+        display: grid;
+        grid-template-columns: repeat(20, 15px);
+        gap: 0px;
+        justify-content: center;
+        background: #0a0a2a;
+        padding: 10px;
+        border-radius: 8px;
+    }
+    
+    .world-tile {
+        width: 15px;
+        height: 15px;
+        display: inline-block;
+        cursor: pointer;
+        transition: transform 0.1s;
+    }
+    
+    .world-tile:hover {
+        transform: scale(1.2);
+        z-index: 10;
+    }
+    
+    .legend {
+        display: flex;
+        gap: 15px;
+        justify-content: center;
+        margin-top: 10px;
+        font-size: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    .legend-color {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+    }
+    
+    .info-section {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .history-log {
+        max-height: 150px;
+        overflow-y: auto;
+        font-size: 12px;
+    }
+    
+    .history-entry {
+        padding: 4px;
+        border-left: 2px solid #ffaa00;
+        margin: 4px 0;
+        padding-left: 8px;
+    }
+    
+    .civ-card {
+        background: rgba(0,0,0,0.3);
+        padding: 8px;
+        border-radius: 8px;
+        margin: 8px 0;
+    }
+    
+    .character-creator, .npc-creator {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 15px;
+        margin-top: 20px;
+    }
+    
+    .char-input {
+        background: #1a1a2a;
+        border: 1px solid #ff00aa;
+        border-radius: 8px;
+        padding: 8px;
+        color: white;
+        margin: 5px 0;
+        width: 100%;
+    }
+    
+    .create-btn {
+        background: #ff00aa;
+        border: none;
+        padding: 10px;
+        border-radius: 8px;
+        color: white;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 10px;
+    }
+    
+    .character-list, .npc-list {
+        margin-top: 15px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .character-card, .npc-card {
+        background: rgba(255,0,170,0.1);
+        border: 1px solid #ff00aa;
+        border-radius: 8px;
+        padding: 8px;
+        margin: 5px 0;
+        cursor: pointer;
+    }
+    
+    .character-actions {
+        margin-top: 20px;
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        padding: 15px;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 15px 0;
+    }
+    
+    .action-btn {
+        background: #44aa44;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        color: white;
+        cursor: pointer;
+    }
+    
+    .action-log {
+        max-height: 150px;
+        overflow-y: auto;
+        font-size: 12px;
+        background: rgba(0,0,0,0.3);
+        padding: 10px;
+        border-radius: 8px;
+    }
+    
+    .action-entry {
+        padding: 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .interaction-panel {
+        margin-top: 20px;
+        background: rgba(0,0,0,0.6);
+        border-radius: 12px;
+        padding: 15px;
+        border: 1px solid #ffaa00;
+    }
+    
+    .dialogue-box {
+        margin: 15px 0;
+    }
+    
+    .npc-dialogue-text {
+        background: rgba(0,0,0,0.5);
+        padding: 15px;
+        border-radius: 12px;
+        font-style: italic;
+        margin-bottom: 15px;
+    }
+    
+    .dialogue-options {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 10px 0;
+    }
+    
+    .dialogue-option {
+        background: #667eea;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+    }
+    
+    .custom-dialogue {
+        width: 100%;
+        background: #1a1a2a;
+        border: 1px solid #ff00aa;
+        border-radius: 8px;
+        padding: 8px;
+        color: white;
+        margin: 10px 0;
+    }
+    
+    .empty-worlds {
+        text-align: center;
+        padding: 40px;
+        color: #888;
+    }
+</style>
+
+<div class="world-game-container" @onkeydown="HandleKeyPress" tabindex="0">
+    <div class="game-header">
+        <h1>🌑 TONIT - WORLD CREATION & DESTRUCTION</h1>
+        <p>Press <span class="key-hint">K</span> to Create World | <span class="key-hint">D</span> to Destroy | <span class="key-hint">C</span> to Create Character | <span class="key-hint">N</span> to Create NPC</p>
+        <div class="stats-bar">
+            <span>🔮 Power Level: @powerLevel</span>
+            <span>🌍 Worlds Created: @worlds.Count</span>
+            <span>👤 Characters: @characters.Count</span>
+            <span>🤖 NPCs: @npcs.Count</span>
+        </div>
+    </div>
+
+    <div class="game-main">
+        <div class="world-list">
+            <h3>✨ YOUR WORLDS</h3>
+            @if (worlds.Count == 0)
+            {
+                <div class="empty-worlds">Press K to create your first world...</div>
+            }
+            else
+            {
+                @foreach (var world in worlds.Values)
+                {
+                    <div class="world-card @(selectedWorld?.Id == world.Id ? "selected" : "")" @onclick="() => SelectWorld(world.Id)">
+                        <div class="world-name">🌌 @world.Name</div>
+                        <div class="world-stats">
+                            <span>🏔️ Size: @world.Size km²</span>
+                            <span>👥 Pop: @world.Population</span>
+                            <span>⚡ Power: @world.PowerConsumption</span>
+                        </div>
+                        <div class="world-description">@world.Description</div>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="game-area">
+            @if (selectedWorld != null)
+            {
+                <div class="world-builder">
+                    <h3>🌍 BUILDING: @selectedWorld.Name</h3>
+                    
+                    <div class="builder-controls">
+                        <button class="builder-btn" @onclick="GenerateTerrain">🏔️ Regenerate Terrain</button>
+                        <button class="builder-btn" @onclick="GenerateBiomes">🌿 Generate Biomes</button>
+                        <button class="builder-btn" @onclick="AddCivilization">🏛️ Add Civilization</button>
+                        <button class="builder-btn" @onclick="TriggerWorldEvent">⚡ Random Event</button>
+                        <button class="builder-btn danger" @onclick="DestroySelectedWorld">💀 Destroy World</button>
+                    </div>
+
+                    <div class="world-visualization">
+                        @if (selectedWorld.TerrainMap != null && selectedWorld.TerrainMap.Count > 0)
+                        {
+                            <div class="world-map" style="grid-template-columns: repeat(@selectedWorld.TerrainWidth, 15px);">
+                                @for (int y = 0; y < selectedWorld.TerrainHeight && y < selectedWorld.TerrainMap.Count; y++)
+                                {
+                                    var row = selectedWorld.TerrainMap[y];
+                                    if (row != null)
+                                    {
+                                        for (int x = 0; x < selectedWorld.TerrainWidth && x < row.Count; x++)
+                                        {
+                                            var tile = row[x];
+                                            if (tile != null)
+                                            {
+                                                <div class="world-tile" style="background: @GetTileColor(tile.Type);" title="@tile.Type" @onclick="() => OnTileClick(x, y)"></div>
+                                            }
+                                            else
+                                            {
+                                                <div class="world-tile" style="background: #3a6ea5;" title="Unknown"></div>
+                                            }
+                                        }
+                                    }
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="empty-worlds">Generating terrain...</div>
+                        }
+                        <div class="legend">
+                            <div class="legend-item"><div class="legend-color" style="background: #3a6ea5;"></div><span>🌊 Ocean</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #d4af37;"></div><span>🏜️ Desert</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #2c5e2e;"></div><span>🌲 Forest</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #8b5a2b;"></div><span>⛰️ Mountain</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #6b8e23;"></div><span>🌾 Plains</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #5d8c6b;"></div><span>🏞️ Swamp</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #e0e0e0;"></div><span>❄️ Tundra</span></div>
+                            <div class="legend-item"><div class="legend-color" style="background: #b8860b;"></div><span>🏛️ City</span></div>
+                        </div>
+                    </div>
+
+                    <div class="world-info">
+                        <div class="info-section">
+                            <h4>📜 World History</h4>
+                            <div class="history-log">
+                                @foreach (var history in selectedWorld.History.TakeLast(5))
+                                {
+                                    <div class="history-entry">@history</div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="info-section">
+                            <h4>🏙️ Civilizations</h4>
+                            @if (selectedWorld.Civilizations != null && selectedWorld.Civilizations.Any())
+                            {
+                                @foreach (var civ in selectedWorld.Civilizations)
+                                {
+                                    <div class="civ-card">
+                                        <strong>@civ.Name</strong> - Level @civ.Level
+                                        <div class="civ-desc">@civ.Description</div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="empty-worlds">No civilizations yet...</div>
+                            }
+                        </div>
+
+                        <div class="info-section">
+                            <h4>🧬 Active Life Forms</h4>
+                            @if (selectedWorld.LifeForms != null && selectedWorld.LifeForms.Any())
+                            {
+                                @foreach (var life in selectedWorld.LifeForms.Take(10))
+                                {
+                                    <div class="life-form">🧬 @life</div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="empty-worlds">No life forms yet...</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="character-creator">
+                    <h3>👤 CHARACTER CREATION</h3>
+                    <input @bind="newCharacterName" placeholder="Character Name" class="char-input" />
+                    <select @bind="newCharacterClass" class="char-input">
+                        <option value="Warrior">⚔️ Warrior</option>
+                        <option value="Mage">🔮 Mage</option>
+                        <option value="Rogue">🗡️ Rogue</option>
+                        <option value="Cleric">✨ Cleric</option>
+                        <option value="DarkLord">🌑 Dark Lord</option>
+                    </select>
+                    <button class="create-btn" @onclick="CreateCharacter">Create Character</button>
+                    
+                    @if (characters.Count > 0)
+                    {
+                        <div class="character-list">
+                            <h4>⭐ YOUR CHARACTERS</h4>
+                            @foreach (var chara in characters.Values)
+                            {
+                                <div class="character-card" @onclick="() => SelectCharacter(chara.Id)">
+                                    <div class="char-name">@chara.Name</div>
+                                    <div class="char-class">@chara.Class</div>
+                                    <div class="char-level">Level @chara.Level</div>
+                                    <div class="char-stats">
+                                        ❤️ @chara.Health | ⚔️ @chara.Attack | 🛡️ @chara.Defense
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="npc-creator">
+                    <h3>🤖 NPC CREATION</h3>
+                    <input @bind="newNPCName" placeholder="NPC Name" class="char-input" />
+                    <input @bind="newNPCDialogue" placeholder="Default Dialogue" class="char-input" />
+                    <select @bind="newNPCPersonality" class="char-input">
+                        <option value="Friendly">😊 Friendly</option>
+                        <option value="Hostile">😠 Hostile</option>
+                        <option value="Neutral">😐 Neutral</option>
+                        <option value="Mysterious">🔮 Mysterious</option>
+                        <option value="Wise">📚 Wise</option>
+                    </select>
+                    <button class="create-btn" @onclick="CreateNPC">Create NPC</button>
+                    
+                    @if (npcs.Count > 0)
+                    {
+                        <div class="npc-list">
+                            <h4>🤖 ACTIVE NPCS</h4>
+                            @foreach (var npc in npcs.Values)
+                            {
+                                <div class="npc-card" @onclick="() => InteractWithNPC(npc.Id)">
+                                    <div class="npc-name">@npc.Name</div>
+                                    <div class="npc-personality">@npc.Personality</div>
+                                    <div class="npc-dialogue">"@npc.CurrentDialogue"</div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (selectedCharacter != null)
+                {
+                    <div class="character-actions">
+                        <h3>⚔️ @selectedCharacter.Name - ACTIONS</h3>
+                        <div class="action-buttons">
+                            <button class="action-btn" @onclick="ExploreWorld">🌍 Explore World</button>
+                            <button class="action-btn" @onclick="TalkToNPCs">💬 Talk to NPCs</button>
+                            <button class="action-btn" @onclick="BattleMode">⚔️ Enter Battle</button>
+                            <button class="action-btn" @onclick="CastSpell">🔮 Cast Spell</button>
+                            <button class="action-btn" @onclick="LevelUp">⬆️ Level Up</button>
+                        </div>
+                        <div class="action-log">
+                            @foreach (var action in selectedCharacter.ActionLog.TakeLast(10))
+                            {
+                                <div class="action-entry">@action</div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (selectedNPC != null)
+                {
+                    <div class="interaction-panel">
+                        <h3>💬 TALKING TO: @selectedNPC.Name</h3>
+                        <div class="dialogue-box">
+                            <div class="npc-dialogue-text">"@selectedNPC.CurrentDialogue"</div>
+                            <div class="dialogue-options">
+                                @foreach (var option in selectedNPC.DialogueOptions)
+                                {
+                                    <button class="dialogue-option" @onclick="() => ChooseDialogueOption(option)">@option</button>
+                                }
+                            </div>
+                            <textarea @bind="customDialogue" placeholder="Say something..." class="custom-dialogue"></textarea>
+                            <button class="create-btn" @onclick="SendCustomDialogue">💬 Send</button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private Random _random = new Random();
+    private int powerLevel = 1000;
+    private Dictionary<string, World> worlds = new();
+    private Dictionary<string, Character> characters = new();
+    private Dictionary<string, NPC> npcs = new();
+    private World? selectedWorld;
+    private Character? selectedCharacter;
+    private NPC? selectedNPC;
+    private string newCharacterName = "";
+    private string newCharacterClass = "Warrior";
+    private string newNPCName = "";
+    private string newNPCDialogue = "Hello, traveler!";
+    private string newNPCPersonality = "Friendly";
+    private string customDialogue = "";
+    
+    private MLContext? mlContext;
+    private ITransformer? npcModel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await InitializeML();
+        await LoadSavedData();
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", "document.querySelector('.world-game-container')?.focus()");
+            }
+            catch { }
+            StateHasChanged();
+        }
+    }
+    
+    private string GetTileColor(string tileType)
+    {
+        return tileType switch
+        {
+            "Ocean" => "#3a6ea5",
+            "Desert" => "#d4af37",
+            "Forest" => "#2c5e2e",
+            "Mountain" => "#8b5a2b",
+            "Plains" => "#6b8e23",
+            "Swamp" => "#5d8c6b",
+            "Tundra" => "#e0e0e0",
+            "City" => "#b8860b",
+            _ => "#3a6ea5"
+        };
+    }
+    
+    private async Task InitializeML()
+    {
+        try
+        {
+            mlContext = new MLContext();
+            
+            var trainingData = new List<NPCData>();
+            var personalityTypes = new[] { "Friendly", "Hostile", "Neutral", "Mysterious", "Wise" };
+            var personalityScores = new Dictionary<string, float>
+            {
+                ["Friendly"] = 0.2f,
+                ["Hostile"] = 0.8f,
+                ["Neutral"] = 0.5f,
+                ["Mysterious"] = 0.6f,
+                ["Wise"] = 0.3f
+            };
+            
+            for (int i = 0; i < 100; i++)
+            {
+                var personality = personalityTypes[_random.Next(personalityTypes.Length)];
+                var interactionCount = _random.Next(0, 100);
+                var baseScore = personalityScores[personality];
+                var responseScore = baseScore + (interactionCount / 200f);
+                responseScore = Math.Min(1f, responseScore);
+                
+                trainingData.Add(new NPCData
+                {
+                    PersonalityScore = personalityScores[personality],
+                    InteractionCount = interactionCount,
+                    ResponseScore = responseScore
+                });
+            }
+            
+            var data = mlContext.Data.LoadFromEnumerable(trainingData);
+            
+            var pipeline = mlContext.Transforms.Concatenate("Features", nameof(NPCData.PersonalityScore), nameof(NPCData.InteractionCount))
+                .Append(mlContext.Regression.Trainers.Sdca(labelColumnName: nameof(NPCData.ResponseScore), maximumNumberOfIterations: 100));
+            
+            npcModel = pipeline.Fit(data);
+            Console.WriteLine("ML Model trained successfully with " + trainingData.Count + " samples");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ML Initialization error: {ex.Message}");
+            npcModel = null;
+        }
+    }
+    
+    private float PredictNPCPersonalityScore(NPC npc)
+    {
+        if (npcModel == null || mlContext == null) return 0.5f;
+        
+        try
+        {
+            var personalityScore = npc.Personality switch
+            {
+                "Friendly" => 0.2f,
+                "Hostile" => 0.8f,
+                "Neutral" => 0.5f,
+                "Mysterious" => 0.6f,
+                "Wise" => 0.3f,
+                _ => 0.5f
+            };
+            
+            var engine = mlContext.Model.CreatePredictionEngine<NPCData, NPCResponsePrediction>(npcModel);
+            var input = new NPCData
+            {
+                PersonalityScore = personalityScore,
+                InteractionCount = npc.InteractionHistory.Count,
+                ResponseScore = 0
+            };
+            
+            var prediction = engine.Predict(input);
+            return prediction.PredictedScore;
+        }
+        catch
+        {
+            return 0.5f;
+        }
+    }
+    
+    private async Task LoadSavedData()
+    {
+        try
+        {
+            var savedWorlds = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "tonit_worlds");
+            if (!string.IsNullOrEmpty(savedWorlds))
+                worlds = JsonConvert.DeserializeObject<Dictionary<string, World>>(savedWorlds) ?? new();
+                
+            var savedChars = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "tonit_characters");
+            if (!string.IsNullOrEmpty(savedChars))
+                characters = JsonConvert.DeserializeObject<Dictionary<string, Character>>(savedChars) ?? new();
+                
+            var savedNPCs = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "tonit_npcs");
+            if (!string.IsNullOrEmpty(savedNPCs))
+                npcs = JsonConvert.DeserializeObject<Dictionary<string, NPC>>(savedNPCs) ?? new();
+                
+            if (worlds.Any()) selectedWorld = worlds.Values.First();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Load error: {ex.Message}");
+        }
+    }
+    
+    private async Task SaveData()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "tonit_worlds", JsonConvert.SerializeObject(worlds));
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "tonit_characters", JsonConvert.SerializeObject(characters));
+            await JSRuntime.InvokeVoidAsync("localStorage.setItem", "tonit_npcs", JsonConvert.SerializeObject(npcs));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Save error: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+    
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        switch (e.Key.ToLower())
+        {
+            case "k":
+                await CreateWorld();
+                break;
+            case "d":
+                if (selectedWorld != null)
+                    await DestroySelectedWorld();
+                break;
+            case "c":
+                await CreateCharacter();
+                break;
+            case "n":
+                await CreateNPC();
+                break;
+        }
+    }
+    
+    private void OnTileClick(int x, int y)
+    {
+        if (selectedWorld == null) return;
+        if (selectedWorld.TerrainMap != null && y < selectedWorld.TerrainMap.Count && x < selectedWorld.TerrainMap[y].Count)
+        {
+            var tile = selectedWorld.TerrainMap[y][x];
+            if (tile != null)
+            {
+                selectedWorld.History.Add($"Explored {tile.Type} at coordinates ({x}, {y})");
+                StateHasChanged();
+                _ = SaveData();
+            }
+        }
+    }
+    
+    private async Task CreateWorld()
+    {
+        var worldId = Guid.NewGuid().ToString();
+        var world = new World
+        {
+            Id = worldId,
+            Name = $"World of {DateTime.Now:HHmmss}",
+            Size = _random.Next(1000, 50000),
+            Population = _random.Next(0, 100000),
+            PowerConsumption = _random.Next(10, 500),
+            Description = $"A mystical world created by Tonit at {DateTime.Now}",
+            History = new List<string> { $"✨ World created at {DateTime.Now}" },
+            Civilizations = new List<Civilization>(),
+            LifeForms = new List<string>(),
+            TerrainMap = GenerateProceduralTerrain(20, 20),
+            TerrainWidth = 20,
+            TerrainHeight = 20
+        };
+        
+        var initialLifeForms = new[] { "Primordial slime", "Ancient trees", "Crystal formations", "Magical spores" };
+        world.LifeForms.Add(initialLifeForms[_random.Next(initialLifeForms.Length)]);
+        
+        worlds[worldId] = world;
+        selectedWorld = world;
+        powerLevel += 100;
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private List<List<TerrainTile>> GenerateProceduralTerrain(int width, int height)
+    {
+        var terrain = new List<List<TerrainTile>>();
+        
+        for (int y = 0; y < height; y++)
+        {
+            var row = new List<TerrainTile>();
+            for (int x = 0; x < width; x++)
+            {
+                var noise = Math.Sin(x * 0.3) * Math.Cos(y * 0.3) + (_random.NextDouble() - 0.5) * 0.3;
+                string type;
+                
+                if (noise < -0.5) type = "Ocean";
+                else if (noise < -0.2) type = "Swamp";
+                else if (noise < 0) type = "Plains";
+                else if (noise < 0.3) type = "Forest";
+                else if (noise < 0.6) type = "Mountain";
+                else type = "Desert";
+                
+                if ((x < 3 || x > width - 4) && (y < 3 || y > height - 4))
+                    type = "Tundra";
+                
+                row.Add(new TerrainTile { Type = type, Elevation = (float)noise });
+            }
+            terrain.Add(row);
+        }
+        return terrain;
+    }
+    
+    private async Task GenerateTerrain()
+    {
+        if (selectedWorld == null) return;
+        selectedWorld.TerrainMap = GenerateProceduralTerrain(selectedWorld.TerrainWidth, selectedWorld.TerrainHeight);
+        selectedWorld.History.Add($"🏔️ New terrain generated at {DateTime.Now}");
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task GenerateBiomes()
+    {
+        if (selectedWorld == null) return;
+        var biomes = new[] { "Lush Forest", "Scorching Desert", "Frozen Tundra", "Mystic Swamp", "Crystal Caverns", "Floating Islands" };
+        var newBiome = biomes[_random.Next(biomes.Length)];
+        selectedWorld.LifeForms.Add($"{newBiome} biome discovered!");
+        selectedWorld.History.Add($"🌿 New biome discovered: {newBiome}");
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task AddCivilization()
+    {
+        if (selectedWorld == null) return;
+        var civNames = new[] { "Eldoria", "Nexus Prime", "Avalon", "Crystalium", "Shadowfen", "Starhaven", "Ironhold", "Mystfall" };
+        var newCiv = new Civilization
+        {
+            Name = civNames[_random.Next(civNames.Length)],
+            Level = _random.Next(1, 8),
+            Description = $"A {(_random.Next(2) == 0 ? "peaceful" : "warlike")} civilization that thrives on {(new[] { "magic", "technology", "nature", "commerce" })[_random.Next(4)]}"
+        };
+        selectedWorld.Civilizations.Add(newCiv);
+        selectedWorld.Population += _random.Next(1000, 50000);
+        
+        if (selectedWorld.TerrainMap != null && selectedWorld.TerrainMap.Count > 0 && selectedWorld.TerrainMap[0].Count > 0)
+        {
+            var centerX = selectedWorld.TerrainWidth / 2;
+            var centerY = selectedWorld.TerrainHeight / 2;
+            if (centerY < selectedWorld.TerrainMap.Count && centerX < selectedWorld.TerrainMap[centerY].Count)
+            {
+                selectedWorld.TerrainMap[centerY][centerX].Type = "City";
+            }
+        }
+        
+        selectedWorld.History.Add($"🏛️ New civilization '{newCiv.Name}' emerged!");
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task TriggerWorldEvent()
+    {
+        if (selectedWorld == null) return;
+        var events = new[]
+        {
+            "☄️ A meteor shower lights up the sky!",
+            "🏛️ Ancient ruins discovered deep underground!",
+            "🐉 A great dragon awakens from slumber!",
+            "💎 Magical crystals begin growing everywhere!",
+            "🌀 A portal to another dimension opens!",
+            "🌋 The ground shakes as a new volcano forms!",
+            "🌫️ A mysterious fog rolls in from the sea!",
+            "✨ A celestial alignment grants magical power!",
+            "🌊 A tsunami reshapes the coastline!",
+            "🔥 Wildfires sweep across the plains!"
+        };
+        var randomEvent = events[_random.Next(events.Length)];
+        selectedWorld.History.Add(randomEvent);
+        
+        if (randomEvent.Contains("dragon") || randomEvent.Contains("portal"))
+        {
+            powerLevel += 50;
+        }
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task DestroySelectedWorld()
+    {
+        if (selectedWorld == null) return;
+        var confirm = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to destroy {selectedWorld.Name}?");
+        if (confirm)
+        {
+            worlds.Remove(selectedWorld.Id);
+            selectedWorld = worlds.Values.FirstOrDefault();
+            powerLevel -= 50;
+            await SaveData();
+            StateHasChanged();
+        }
+    }
+    
+    private async Task CreateCharacter()
+    {
+        if (string.IsNullOrEmpty(newCharacterName)) return;
+        
+        var characterId = Guid.NewGuid().ToString();
+        var stats = GetClassStats(newCharacterClass);
+        var character = new Character
+        {
+            Id = characterId,
+            Name = newCharacterName,
+            Class = newCharacterClass,
+            Level = 1,
+            Health = stats.Health,
+            MaxHealth = stats.Health,
+            Attack = stats.Attack,
+            Defense = stats.Defense,
+            Magic = stats.Magic,
+            Experience = 0,
+            ActionLog = new List<string> { $"✨ Character {newCharacterName} was born!" }
+        };
+        
+        characters[characterId] = character;
+        selectedCharacter = character;
+        newCharacterName = "";
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private (int Health, int Attack, int Defense, int Magic) GetClassStats(string className)
+    {
+        return className switch
+        {
+            "Warrior" => (120, 25, 20, 5),
+            "Mage" => (70, 10, 10, 35),
+            "Rogue" => (90, 22, 15, 10),
+            "Cleric" => (100, 15, 18, 25),
+            "DarkLord" => (150, 30, 25, 30),
+            _ => (100, 15, 15, 15)
+        };
+    }
+    
+    private async Task CreateNPC()
+    {
+        if (string.IsNullOrEmpty(newNPCName)) return;
+        
+        var npcId = Guid.NewGuid().ToString();
+        var npc = new NPC
+        {
+            Id = npcId,
+            Name = newNPCName,
+            Personality = newNPCPersonality,
+            CurrentDialogue = newNPCDialogue,
+            DialogueOptions = GenerateDialogueOptions(newNPCPersonality),
+            Relationship = 0,
+            InteractionHistory = new List<string>()
+        };
+        
+        npcs[npcId] = npc;
+        newNPCName = "";
+        newNPCDialogue = "Hello, traveler!";
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private List<string> GenerateDialogueOptions(string personality)
+    {
+        return personality switch
+        {
+            "Friendly" => new List<string> { "Tell me about yourself", "Do you need help?", "Let's be friends!", "What's your story?" },
+            "Hostile" => new List<string> { "What do you want?!", "Leave me alone!", "Fight me!", "State your business!" },
+            "Neutral" => new List<string> { "Hello.", "What's happening?", "Nice weather.", "Good day." },
+            "Mysterious" => new List<string> { "Who are you really?", "What secrets do you know?", "Show me the truth!", "What lies beyond?" },
+            "Wise" => new List<string> { "Share your wisdom", "What is the meaning of life?", "Teach me something", "Tell me a prophecy" },
+            _ => new List<string> { "Hello", "Goodbye", "How are you?", "What's new?" }
+        };
+    }
+    
+    private async Task SelectWorld(string worldId)
+    {
+        if (worlds.TryGetValue(worldId, out var world))
+        {
+            selectedWorld = world;
+            StateHasChanged();
+        }
+    }
+    
+    private void SelectCharacter(string charId)
+    {
+        if (characters.TryGetValue(charId, out var character))
+        {
+            selectedCharacter = character;
+            StateHasChanged();
+        }
+    }
+    
+    private void InteractWithNPC(string npcId)
+    {
+        if (npcs.TryGetValue(npcId, out var npc))
+        {
+            selectedNPC = npc;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task ChooseDialogueOption(string option)
+    {
+        if (selectedNPC == null || selectedCharacter == null) return;
+        
+        var response = GenerateNPCResponse(selectedNPC, option);
+        selectedNPC.CurrentDialogue = response;
+        selectedNPC.InteractionHistory.Add($"{selectedCharacter.Name}: {option} -> {selectedNPC.Name}: {response}");
+        selectedNPC.Relationship += _random.Next(-5, 15);
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task SendCustomDialogue()
+    {
+        if (selectedNPC == null || selectedCharacter == null) 
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Select a character and NPC first!");
+            return;
+        }
+        if (string.IsNullOrEmpty(customDialogue))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Type something to say!");
+            return;
+        }
+        
+        var response = GenerateNPCResponse(selectedNPC, customDialogue);
+        selectedNPC.CurrentDialogue = response;
+        selectedNPC.InteractionHistory.Add($"{selectedCharacter.Name}: {customDialogue} -> {selectedNPC.Name}: {response}");
+        
+        customDialogue = "";
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private string GenerateNPCResponse(NPC npc, string playerMessage)
+    {
+        float predictionScore = PredictNPCPersonalityScore(npc);
+        
+        var responses = new Dictionary<string, List<string>>
+        {
+            ["Friendly"] = new List<string> { 
+                "Wonderful to see you!", 
+                "May your journey be blessed!", 
+                "The stars shine bright for you today!",
+                "Your kindness warms my heart!"
+            },
+            ["Hostile"] = new List<string> {
+                "Stay back!", 
+                "I'll destroy you!", 
+                "You're not welcome here!",
+                "Face my wrath!"
+            },
+            ["Mysterious"] = new List<string> {
+                "The shadows whisper your name...",
+                "I see things you cannot imagine...",
+                "The truth lies beyond the veil...",
+                "Your destiny is not yet written..."
+            },
+            ["Wise"] = new List<string> {
+                "Wisdom comes to those who listen...",
+                "The path of light is not always bright...",
+                "Patience reveals all truths...",
+                "Knowledge is the greatest weapon..."
+            }
+        };
+        
+        var possibleResponses = responses.ContainsKey(npc.Personality) ? responses[npc.Personality] : responses["Friendly"];
+        var baseResponse = possibleResponses[_random.Next(possibleResponses.Count)];
+        
+        if (predictionScore > 0.7f)
+        {
+            return baseResponse + " (I feel a strong connection to you!)";
+        }
+        else if (predictionScore < 0.3f)
+        {
+            return baseResponse + " (I'm not sure I trust you...)";
+        }
+        
+        return baseResponse;
+    }
+    
+    private async Task ExploreWorld()
+    {
+        if (selectedCharacter == null || selectedWorld == null) return;
+        
+        var discoveries = new[]
+        {
+            "found ancient ruins with mysterious writings",
+            "discovered magical crystals pulsing with energy",
+            "encountered wild beasts guarding a treasure",
+            "found a hidden treasure chest filled with gold",
+            "met a wandering sage who shared wisdom",
+            "discovered a new biome teeming with life"
+        };
+        var discovery = discoveries[_random.Next(discoveries.Length)];
+        
+        selectedCharacter.ActionLog.Add($"{selectedCharacter.Name} explored {selectedWorld.Name} and {discovery}!");
+        selectedCharacter.Experience += _random.Next(10, 50);
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task TalkToNPCs()
+    {
+        if (selectedCharacter == null || npcs.Count == 0) return;
+        
+        var randomNPC = npcs.Values.ElementAt(_random.Next(npcs.Count));
+        var dialogue = GenerateNPCResponse(randomNPC, "Hello");
+        randomNPC.CurrentDialogue = dialogue;
+        selectedCharacter.ActionLog.Add($"{selectedCharacter.Name} spoke with {randomNPC.Name}: {dialogue}");
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task BattleMode()
+    {
+        if (selectedCharacter == null) return;
+        
+        var enemies = new[] { "Goblin", "Orc", "Dark Knight", "Dragon", "Skeleton Warrior", "Vampire" };
+        var enemy = enemies[_random.Next(enemies.Length)];
+        var enemyHealth = _random.Next(50, 150);
+        var damage = selectedCharacter.Attack + _random.Next(1, 20);
+        enemyHealth -= damage;
+        
+        selectedCharacter.ActionLog.Add($"{selectedCharacter.Name} attacked the {enemy}! Dealt {damage} damage!");
+        
+        if (enemyHealth <= 0)
+        {
+            var exp = _random.Next(20, 100);
+            selectedCharacter.Experience += exp;
+            selectedCharacter.ActionLog.Add($"⚔️ Victory! Defeated the {enemy}! Gained {exp} experience!");
+        }
+        else
+        {
+            selectedCharacter.ActionLog.Add($"The {enemy} survived with {enemyHealth} health remaining!");
+        }
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task CastSpell()
+    {
+        if (selectedCharacter == null) return;
+        
+        var spells = new[] { "Fireball", "Ice Storm", "Lightning Bolt", "Heal", "Darkness", "Time Stop" };
+        var spell = spells[_random.Next(spells.Length)];
+        var power = selectedCharacter.Magic + _random.Next(1, 30);
+        
+        selectedCharacter.ActionLog.Add($"{selectedCharacter.Name} cast {spell}! Power: {power}");
+        selectedCharacter.Experience += _random.Next(5, 25);
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    private async Task LevelUp()
+    {
+        if (selectedCharacter == null) return;
+        
+        var requiredExp = selectedCharacter.Level * 100;
+        if (selectedCharacter.Experience >= requiredExp)
+        {
+            selectedCharacter.Level++;
+            selectedCharacter.Experience -= requiredExp;
+            selectedCharacter.Health += 20;
+            selectedCharacter.MaxHealth += 20;
+            selectedCharacter.Attack += 5;
+            selectedCharacter.Defense += 5;
+            selectedCharacter.Magic += 5;
+            
+            selectedCharacter.ActionLog.Add($"✨ {selectedCharacter.Name} reached Level {selectedCharacter.Level}! ✨");
+        }
+        else
+        {
+            selectedCharacter.ActionLog.Add($"Need {requiredExp - selectedCharacter.Experience} more EXP to level up");
+        }
+        
+        await SaveData();
+        StateHasChanged();
+    }
+    
+    // Data Classes
+    public class World
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public int Size { get; set; }
+        public int Population { get; set; }
+        public int PowerConsumption { get; set; }
+        public string Description { get; set; } = "";
+        public List<string> History { get; set; } = new();
+        public List<Civilization> Civilizations { get; set; } = new();
+        public List<string> LifeForms { get; set; } = new();
+        public List<List<TerrainTile>> TerrainMap { get; set; } = new();
+        public int TerrainWidth { get; set; } = 20;
+        public int TerrainHeight { get; set; } = 20;
+    }
+    
+    public class TerrainTile
+    {
+        public string Type { get; set; } = "Plains";
+        public float Elevation { get; set; }
+        public bool HasStructure { get; set; }
+    }
+    
+    public class Civilization
+    {
+        public string Name { get; set; } = "";
+        public int Level { get; set; }
+        public string Description { get; set; } = "";
+    }
+    
+    public class Character
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Class { get; set; } = "";
+        public int Level { get; set; }
+        public int Health { get; set; }
+        public int MaxHealth { get; set; }
+        public int Attack { get; set; }
+        public int Defense { get; set; }
+        public int Magic { get; set; }
+        public int Experience { get; set; }
+        public List<string> ActionLog { get; set; } = new();
+    }
+    
+    public class NPC
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Personality { get; set; } = "";
+        public string CurrentDialogue { get; set; } = "";
+        public List<string> DialogueOptions { get; set; } = new();
+        public int Relationship { get; set; }
+        public List<string> InteractionHistory { get; set; } = new();
+    }
+    
+    public class NPCData
+    {
+        public float PersonalityScore { get; set; }
+        public float InteractionCount { get; set; }
+        public float ResponseScore { get; set; }
+    }
+    
+    public class NPCResponsePrediction
+    {
+        [Microsoft.ML.Data.ColumnName("Score")]
+        public float PredictedScore { get; set; }
+    }
+}

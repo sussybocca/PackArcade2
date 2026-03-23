@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <RestoreSuccess Condition=" '$(RestoreSuccess)' == '' ">True</RestoreSuccess>
+    <RestoreTool Condition=" '$(RestoreTool)' == '' ">NuGet</RestoreTool>
+    <ProjectAssetsFile Condition=" '$(ProjectAssetsFile)' == '' ">$(MSBuildThisFileDirectory)project.assets.json</ProjectAssetsFile>
+    <NuGetPackageRoot Condition=" '$(NuGetPackageRoot)' == '' ">D:\NuGetPackages</NuGetPackageRoot>
+    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">D:\NuGetPackages;C:\Program Files (x86)\Microsoft Visual Studio\Shared\NuGetPackages</NuGetPackageFolders>
+    <NuGetProjectStyle Condition=" '$(NuGetProjectStyle)' == '' ">PackageReference</NuGetProjectStyle>
+    <NuGetToolVersion Condition=" '$(NuGetToolVersion)' == '' ">6.14.0</NuGetToolVersion>
+  </PropertyGroup>
+  <ItemGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <SourceRoot Include="D:\NuGetPackages\" />
+    <SourceRoot Include="C:\Program Files (x86)\Microsoft Visual Studio\Shared\NuGetPackages\" />
+  </ItemGroup>
+  <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <Import Project="$(NuGetPackageRoot)\sixlabors.imagesharp\3.1.4\build\SixLabors.ImageSharp.props" Condition="Exists('$(NuGetPackageRoot)\sixlabors.imagesharp\3.1.4\build\SixLabors.ImageSharp.props')" />
+    <Import Project="$(NuGetPackageRoot)\scisharp.tensorflow.redist\2.16.0\build\netstandard2.0\SciSharp.TensorFlow.Redist.props" Condition="Exists('$(NuGetPackageRoot)\scisharp.tensorflow.redist\2.16.0\build\netstandard2.0\SciSharp.TensorFlow.Redist.props')" />
+    <Import Project="$(NuGetPackageRoot)\microsoft.ml\3.0.0\build\netstandard2.0\Microsoft.ML.props" Condition="Exists('$(NuGetPackageRoot)\microsoft.ml\3.0.0\build\netstandard2.0\Microsoft.ML.props')" />
+    <Import Project="$(NuGetPackageRoot)\microsoft.ml.onnxruntime\1.16.3\build\netstandard2.0\Microsoft.ML.OnnxRuntime.props" Condition="Exists('$(NuGetPackageRoot)\microsoft.ml.onnxruntime\1.16.3\build\netstandard2.0\Microsoft.ML.OnnxRuntime.props')" />
+    <Import Project="$(NuGetPackageRoot)\microsoft.codeanalysis.analyzers\3.3.4\buildTransitive\Microsoft.CodeAnalysis.Analyzers.props" Condition="Exists('$(NuGetPackageRoot)\microsoft.codeanalysis.analyzers\3.3.4\buildTransitive\Microsoft.CodeAnalysis.Analyzers.props')" />
+  </ImportGroup>
+  <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
+    <PkgMicrosoft_Web_WebView2 Condition=" '$(PkgMicrosoft_Web_WebView2)' == '' ">D:\NuGetPackages\microsoft.web.webview2\1.0.2210.55</PkgMicrosoft_Web_WebView2>
+    <PkgMicrosoft_CodeAnalysis_Analyzers Condition=" '$(PkgMicrosoft_CodeAnalysis_Analyzers)' == '' ">D:\NuGetPackages\microsoft.codeanalysis.analyzers\3.3.4</PkgMicrosoft_CodeAnalysis_Analyzers>
+  </PropertyGroup>
+</Project>

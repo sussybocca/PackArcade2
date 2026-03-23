@@ -1,0 +1,7 @@
+{
+  "Id": "stripe",
+  "Name": "Stripe",
+  "Description": "Payment processing",
+  "Endpoint": "https://api.stripe.com",
+  "Connected": true
+}

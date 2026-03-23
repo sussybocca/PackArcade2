@@ -1,0 +1,212 @@
+@page "/dashboard"
+@using PackArcade2
+@inject ProjectService ProjectService
+@inject NavigationManager Navigation
+
+<PageTitle>Dashboard - PackArcade2</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="text-white">Dashboard</h1>
+            <p class="text-muted">Welcome back! Here's an overview of your projects.</p>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Total Projects</h5>
+                    <h2>@totalProjects</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Published</h5>
+                    <h2>@publishedProjects</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Drafts</h5>
+                    <h2>@draftProjects</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Total Views</h5>
+                    <h2>@totalViews</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Projects -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Projects</h5>
+                </div>
+                <div class="card-body">
+                    @if (recentProjects == null || !recentProjects.Any())
+                    {
+                        <p class="text-center text-muted">No projects yet. <a href="/create">Create one now!</a></p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-dark table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Last Saved</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var project in recentProjects)
+                                    {
+                                        <tr>
+                                            <td>@project.Name</td>
+                                            <td><span class="badge bg-@GetTypeColor(project.Type)">@project.Type</span></td>
+                                            <td>@project.LastSaved.ToString("MMM dd, yyyy")</td>
+                                            <td><span class="badge bg-@(project.IsPublished ? "success" : "secondary")">@(project.IsPublished ? "Published" : "Draft")</span></td>
+                                            <td>
+                                                <button class="btn btn-sm btn-primary me-1" @onclick="@(() => EditProject(project.Subdomain))">Edit</button>
+                                                <button class="btn btn-sm btn-success me-1" @onclick="@(() => ViewProject(project.Subdomain))">View</button>
+                                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProject(project.Subdomain))">Delete</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" @onclick="@(() => Navigation.NavigateTo("/create"))">Create New Project</button>
+                        <button class="btn btn-secondary" @onclick="@(() => Navigation.NavigateTo("/upload"))">Upload Game</button>
+                        <button class="btn btn-info" @onclick="@(() => Navigation.NavigateTo("/templates"))">Browse Templates</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-3">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h5 class="mb-0">Activity Feed</h5>
+                </div>
+                <div class="card-body">
+                    @if (activityFeed == null || !activityFeed.Any())
+                    {
+                        <p class="text-center text-muted">No recent activity.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-unstyled">
+                            @foreach (var activity in activityFeed)
+                            {
+                                <li class="mb-2">
+                                    <small class="text-muted">@activity.Timestamp.ToString("HH:mm")</small> - @activity.Message
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int totalProjects = 0;
+    private int publishedProjects = 0;
+    private int draftProjects = 0;
+    private int totalViews = 1243;
+    private List<DashboardProject> recentProjects = new();
+    private List<ActivityItem> activityFeed = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+    }
+
+    private async Task LoadDashboardData()
+    {
+        var projects = await ProjectService.GetAllProjects();
+        recentProjects = projects.Select(p => new DashboardProject
+        {
+            Name = p.Name,
+            Subdomain = p.Subdomain,
+            Type = "Web",
+            LastSaved = p.LastSaved,
+            IsPublished = true
+        }).Take(5).ToList();
+
+        totalProjects = projects.Count;
+        publishedProjects = projects.Count;
+        draftProjects = 0;
+
+        activityFeed = new List<ActivityItem>
+        {
+            new ActivityItem { Timestamp = DateTime.Now.AddMinutes(-5), Message = "Project 'My Game' was viewed 10 times" },
+            new ActivityItem { Timestamp = DateTime.Now.AddHours(-1), Message = "You created a new project" },
+            new ActivityItem { Timestamp = DateTime.Now.AddHours(-3), Message = "Project 'Test' was published" }
+        };
+    }
+
+    private string GetTypeColor(string type) => type switch
+    {
+        "Game" => "success",
+        "Web" => "primary",
+        "App" => "warning",
+        _ => "secondary"
+    };
+
+    private void EditProject(string subdomain) => Navigation.NavigateTo($"/editor/{subdomain}");
+    private void ViewProject(string subdomain) => Navigation.NavigateTo($"/play/{subdomain}");
+    private async Task DeleteProject(string subdomain)
+    {
+        await ProjectService.DeleteProject(subdomain);
+        await LoadDashboardData();
+        StateHasChanged();
+    }
+
+    private class DashboardProject
+    {
+        public string Name { get; set; } = "";
+        public string Subdomain { get; set; } = "";
+        public string Type { get; set; } = "";
+        public DateTime LastSaved { get; set; }
+        public bool IsPublished { get; set; }
+    }
+
+    private class ActivityItem
+    {
+        public DateTime Timestamp { get; set; }
+        public string Message { get; set; } = "";
+    }
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "UserId": "babyyodacutefry@gmail.com",
+    "Username": "babyyodacutefry@gmail.com",
+    "JoinedAt": "2026-03-21T20:42:28.5555586-05:00",
+    "Permission": "view"
+  },
+  {
+    "UserId": "50.44.52.24",
+    "Username": "50.44.52.24",
+    "JoinedAt": "2026-03-21T20:53:46.430892-05:00",
+    "Permission": "edit"
+  },
+  {
+    "UserId": "unknown",
+    "Username": "unknown",
+    "JoinedAt": "2026-03-22T08:20:57.4051536-05:00",
+    "Permission": "edit"
+  },
+  {
+    "UserId": "209.174.229.115",
+    "Username": "209.174.229.115",
+    "JoinedAt": "2026-03-23T11:23:56.9969735-05:00",
+    "Permission": "edit"
+  }
+]

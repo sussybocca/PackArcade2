@@ -1,0 +1,195 @@
+@page "/templates"
+@using PackArcade2
+@using System.IO
+@inject ProjectService ProjectService
+@inject NavigationManager Navigation
+@inject IWebHostEnvironment Environment
+
+<PageTitle>Templates - PackArcade2</PageTitle>
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="text-white">📋 Project Templates</h1>
+            <p class="text-muted">Start a new project from a pre-built template.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        @foreach (var template in templates)
+        {
+            <div class="col-md-4 mb-4">
+                <div class="card bg-dark text-white h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">@template.Name</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>@template.Description</p>
+                        <p><small class="text-muted">Includes: @string.Join(", ", template.Files.Keys)</small></p>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-primary w-100" @onclick="() => UseTemplate(template)">Use Template</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-success mt-3">@message</div>
+    }
+</div>
+
+@code {
+    private List<TemplateInfo> templates = new();
+    private string message = "";
+
+    protected override void OnInitialized()
+    {
+        LoadTemplates();
+    }
+
+    private void LoadTemplates()
+    {
+        templates = new List<TemplateInfo>
+        {
+            new TemplateInfo
+            {
+                Name = "Blank HTML Site",
+                Description = "A basic HTML5 boilerplate with CSS and JS files.",
+                Files = new Dictionary<string, string>
+                {
+                    ["index.html"] = @"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=""utf-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1"">
+    <title>My Site</title>
+    <link rel=""stylesheet"" href=""style.css"">
+</head>
+<body>
+    <h1>Hello, world!</h1>
+    <script src=""script.js""></script>
+</body>
+</html>",
+                    ["style.css"] = @"body {
+    font-family: Arial, sans-serif;
+    margin: 40px;
+    background: #f0f0f0;
+}",
+                    ["script.js"] = @"console.log('Hello from PackArcade2!');"
+                }
+            },
+            new TemplateInfo
+            {
+                Name = "Simple Game",
+                Description = "A canvas-based game template with basic movement.",
+                Files = new Dictionary<string, string>
+                {
+                    ["index.html"] = @"<!DOCTYPE html>
+<html>
+<head>
+    <title>My Game</title>
+    <style>
+        canvas { border: 1px solid black; display: block; margin: 20px auto; }
+    </style>
+</head>
+<body>
+    <canvas id=""gameCanvas"" width=""800"" height=""600""></canvas>
+    <script src=""game.js""></script>
+</body>
+</html>",
+                    ["game.js"] = @"const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let x = 400, y = 300;
+
+function update() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'red';
+    ctx.fillRect(x, y, 20, 20);
+    requestAnimationFrame(update);
+}
+update();"
+                }
+            },
+            new TemplateInfo
+            {
+                Name = "Python Flask API",
+                Description = "A simple Python Flask backend with a sample endpoint.",
+                Files = new Dictionary<string, string>
+                {
+                    ["app.py"] = @"from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api/hello')
+def hello():
+    return jsonify({'message': 'Hello from Flask!'})
+
+if __name__ == '__main__':
+    app.run(debug=True)"
+                }
+            },
+            new TemplateInfo
+            {
+                Name = "C# Web API",
+                Description = "A minimal ASP.NET Core Web API.",
+                Files = new Dictionary<string, string>
+                {
+                    ["api.cs"] = @"using Microsoft.AspNetCore.Mvc;
+
+[Route(""api/[controller]"")]
+[ApiController]
+public class HelloController : ControllerBase
+{
+    [HttpGet]
+    public IActionResult Get()
+    {
+        return Ok(new { message = ""Hello from C#!"" });
+    }
+}"
+                }
+            }
+        };
+    }
+
+    private async Task UseTemplate(TemplateInfo template)
+    {
+        var projectName = $"Template-{Guid.NewGuid():N}"[..20];
+        var subdomain = projectName.ToLower().Replace(" ", "-").Replace("[^a-z0-9-]", "");
+
+        var projectDir = Path.Combine(Environment.WebRootPath, "projects", subdomain);
+        Directory.CreateDirectory(projectDir);
+
+        foreach (var file in template.Files)
+        {
+            await File.WriteAllTextAsync(Path.Combine(projectDir, file.Key), file.Value);
+        }
+
+        // Save project metadata
+        var projectInfo = new ProjectInfo
+        {
+            Name = projectName,
+            Subdomain = subdomain,
+            Created = DateTime.Now,
+            LastSaved = DateTime.Now
+        };
+
+        await ProjectService.SaveProject(subdomain, projectInfo, new List<ProjectComponent>());
+
+        message = $"Project created! Redirecting to editor...";
+        StateHasChanged();
+
+        await Task.Delay(1500);
+        Navigation.NavigateTo($"/editor/{projectName}");
+    }
+
+    private class TemplateInfo
+    {
+        public string Name { get; set; } = "";
+        public string Description { get; set; } = "";
+        public Dictionary<string, string> Files { get; set; } = new();
+    }
+}

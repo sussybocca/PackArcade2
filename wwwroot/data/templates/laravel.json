@@ -1,0 +1,7 @@
+{
+  "Id": "laravel",
+  "Name": "Laravel Starter",
+  "Description": "PHP Laravel framework",
+  "Type": "php",
+  "Files": null
+}

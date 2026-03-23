@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LivePage — Create a Page</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f1115;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .box {
+      background: #161a22;
+      padding: 24px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 420px;
+    }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    label { display: block; margin-top: 16px; font-size: 0.9rem; opacity: 0.9; }
+    input, select, textarea, button {
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 1rem;
+    }
+    input, select, textarea { background: #0f1115; color: white; }
+    textarea { min-height: 120px; }
+    button { background: #4f7cff; color: white; cursor: pointer; margin-top: 20px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .preview { margin-top: 12px; font-size: 0.85rem; color: #9aa4ff; word-break: break-all; }
+    .status { margin-top: 10px; font-size: 0.85rem; white-space: pre-wrap; }
+    .error { color: #ff6b6b; }
+    .success { color: #6bff95; }
+    .actions { margin-top: 16px; display: flex; gap: 8px; flex-direction: column; }
+    .actions button { background: #6bff95; color: #000; }
+    .actions button.view { background: #4f7cff; color: #fff; }
+    .explore-link {
+      margin-top: 16px;
+      text-align: center;
+    }
+    .explore-link a {
+      color: #4f7cff;
+      text-decoration: none;
+      font-weight: bold;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="box">
+  <h1>Create a LivePage</h1>
+
+  <label>Page name</label>
+  <input id="title" placeholder="Five Nights at Freddies" oninput="updateSlug()" />
+
+  <label>Content type</label>
+  <select id="contentType">
+    <option value="blog">Blog</option>
+    <option value="posts">Posts</option>
+    <option value="photos">Photos</option>
+  </select>
+
+  <label>Usage type</label>
+  <select id="usageType">
+    <option value="personal">Personal</option>
+    <option value="commercial">Commercial</option>
+    <option value="business">Business</option>
+  </select>
+
+  <label>Category</label>
+  <select id="category">
+    <option value="family">Family Friendly</option>
+    <option value="18+">18+</option>
+  </select>
+
+  <label>Content</label>
+  <textarea id="content" placeholder="Write your page content here…"></textarea>
+
+  <label>Image URL (optional)</label>
+  <input id="imageUrl" placeholder="https://example.com/image.jpg" />
+
+  <div class="preview" id="slugPreview">URL: /l/</div>
+  <div class="status" id="status"></div>
+  <div class="actions" id="actions" style="display:none;"></div>
+
+  <button id="createBtn" onclick="createPage()">Create Page</button>
+
+  <!-- Explore link -->
+  <div class="explore-link">
+    <a href="/explore.html">Explore other pages & posts →</a>
+  </div>
+</div>
+
+<script>
+function generateSlug(title) {
+  const clean = title.toLowerCase().replace(/[^a-z0-9 ]+/g, "").trim();
+  const spaces = (clean.match(/ /g) || []).length;
+  if (spaces === 0) return clean;
+  if (spaces === 1) return clean.replace(" ", "-");
+  return clean.replace(/ /g, "_");
+}
+
+function updateSlug() {
+  const title = document.getElementById("title").value;
+  document.getElementById("slugPreview").innerText =
+    "URL: /l/" + generateSlug(title);
+}
+
+async function getGoogleEmail() {
+  const category = document.getElementById("category").value;
+  if (category === "18+") {
+    return prompt("Enter your Google email for age verification");
+  }
+  return null;
+}
+
+async function createPage() {
+  const title = document.getElementById("title").value.trim();
+  const contentType = document.getElementById("contentType").value;
+  const usageType = document.getElementById("usageType").value;
+  const category = document.getElementById("category").value;
+  const content = document.getElementById("content").value.trim();
+  const imageUrl = document.getElementById("imageUrl").value.trim();
+  const slug = generateSlug(title);
+
+  const status = document.getElementById("status");
+  const btn = document.getElementById("createBtn");
+  const actions = document.getElementById("actions");
+
+  status.textContent = "";
+  status.className = "status";
+  actions.style.display = "none";
+  actions.innerHTML = "";
+
+  if (!title || !content) {
+    status.textContent = "Please enter a page name and content";
+    status.classList.add("error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Creating…";
+
+  try {
+    const googleEmail = await getGoogleEmail();
+
+    const res = await fetch("/.netlify/functions/createPage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        contentType,
+        usageType,
+        category,
+        content,
+        imageUrl,
+        googleEmail
+      })
+    });
+
+    const raw = await res.text();
+
+    if (!res.ok) {
+      status.textContent = "SERVER ERROR (" + res.status + "):\n\n" + raw;
+      status.classList.add("error");
+      btn.disabled = false;
+      btn.textContent = "Create Page";
+      return;
+    }
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      status.textContent = "INVALID JSON FROM SERVER:\n\n" + raw;
+      status.classList.add("error");
+      btn.disabled = false;
+      btn.textContent = "Create Page";
+      return;
+    }
+
+    status.textContent = "Page created successfully!";
+    status.classList.add("success");
+
+    actions.style.display = "flex";
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "Edit in editor.html";
+    editBtn.onclick = () => window.location.href = "/editor.html?slug=" + encodeURIComponent(data.page.slug);
+    actions.appendChild(editBtn);
+
+    const viewBtn = document.createElement("button");
+    viewBtn.textContent = "View your page";
+    viewBtn.classList.add("view");
+    viewBtn.onclick = () => window.location.href = "/l/" + encodeURIComponent(data.page.slug);
+    actions.appendChild(viewBtn);
+
+    btn.disabled = false;
+    btn.textContent = "Create Another Page";
+
+  } catch (err) {
+    status.textContent = "FETCH FAILED:\n\n" + err.message;
+    status.classList.add("error");
+    btn.disabled = false;
+    btn.textContent = "Create Page";
+  }
+}
+</script>
+
+</body>
+</html>

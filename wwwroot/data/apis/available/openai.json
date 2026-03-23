@@ -1,0 +1,7 @@
+{
+  "Id": "openai",
+  "Name": "OpenAI GPT",
+  "Description": "AI text generation",
+  "Endpoint": "https://api.openai.com/v1",
+  "Connected": false
+}

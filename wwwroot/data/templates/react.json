@@ -1,0 +1,23 @@
+{
+  "Id": "react",
+  "Name": "React Starter",
+  "Description": "React with TypeScript and TailwindCSS",
+  "Type": "node",
+  "Files": [
+    {
+      "Name": "App.jsx",
+      "Type": "js",
+      "Content": "function App() { return \u003Ch1\u003EHello React!\u003C/h1\u003E; } export default App;"
+    },
+    {
+      "Name": "index.html",
+      "Type": "html",
+      "Content": "\u003C!DOCTYPE html\u003E\u003Chtml\u003E\u003Cbody\u003E\u003Cdiv id=\u0027root\u0027\u003E\u003C/div\u003E\u003C/body\u003E\u003C/html\u003E"
+    },
+    {
+      "Name": "package.json",
+      "Type": "json",
+      "Content": "{\n  \u0022name\u0022: \u0022react-app\u0022,\n  \u0022version\u0022: \u00221.0.0\u0022,\n  \u0022dependencies\u0022: {\n    \u0022react\u0022: \u0022^18.2.0\u0022,\n    \u0022react-dom\u0022: \u0022^18.2.0\u0022\n  }\n}"
+    }
+  ]
+}

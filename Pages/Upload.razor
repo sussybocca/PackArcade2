@@ -1,0 +1,177 @@
+@page "/upload"
+@using System.ComponentModel.DataAnnotations
+@using PackArcade2
+@using Microsoft.AspNetCore.Components.Forms
+@inject GameService GameService
+@inject NavigationManager Navigation
+@inject IWebHostEnvironment Environment
+
+<PageTitle>Upload Game - PackArcade2</PageTitle>
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h2 class="mb-0">📤 Upload Your Game</h2>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Game Name</label>
+                        <input @bind="gameName" class="form-control bg-secondary text-white" placeholder="My Awesome Game" />
+                        @if (!string.IsNullOrEmpty(gameName))
+                        {
+                            <small class="text-muted">URL: @(GetSubdomain()).packarcade.win</small>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Game Type</label>
+                        <select @bind="gameType" class="form-select bg-secondary text-white">
+                            <option value="html">HTML Game</option>
+                            <option value="exe">EXE Game</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Game File</label>
+                        <InputFile OnChange="@OnFileSelected" accept="@fileAccept" class="form-control bg-secondary text-white" />
+                        @if (selectedFile != null)
+                        {
+                            <p class="mt-2">Selected: @selectedFile.Name (@(selectedFile.Size) bytes)</p>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Description (Optional)</label>
+                        <textarea @bind="description" class="form-control bg-secondary text-white" rows="3"></textarea>
+                    </div>
+
+                    @if (gameType == "exe")
+                    {
+                        <div class="alert alert-info">
+                            <strong>Note:</strong> EXE files will run in the browser using real x86 emulation.
+                        </div>
+                    }
+
+                    <button class="btn btn-success w-100" @onclick="UploadGame" disabled="@isUploading">
+                        @(isUploading ? "Uploading..." : "Upload Game")
+                    </button>
+
+                    @if (!string.IsNullOrEmpty(message))
+                    {
+                        var messageMarkup = (MarkupString)message;
+                        <div class="alert alert-@(isError ? "danger" : "success") mt-3">
+                            @messageMarkup
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string gameName = "";
+    private string gameType = "html";
+    private string description = "";
+    private IBrowserFile? selectedFile;
+    private bool isUploading = false;
+    private string message = "";
+    private bool isError = false;
+
+    private string fileAccept => gameType == "html" ? ".html,.htm,.zip" : ".exe";
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+    }
+
+    private string GetSubdomain()
+    {
+        return string.IsNullOrWhiteSpace(gameName) 
+            ? "my-game" 
+            : gameName.ToLower().Replace(" ", "-").Replace("[^a-z0-9-]", "");
+    }
+
+    private async Task UploadGame()
+    {
+        if (string.IsNullOrWhiteSpace(gameName))
+        {
+            message = "Please enter a game name";
+            isError = true;
+            return;
+        }
+
+        if (selectedFile == null)
+        {
+            message = "Please select a file";
+            isError = true;
+            return;
+        }
+
+        if (selectedFile.Size > 50 * 1024 * 1024)
+        {
+            message = "File too large (max 50MB)";
+            isError = true;
+            return;
+        }
+
+        isUploading = true;
+        message = "";
+        isError = false;
+
+        try
+        {
+            var subdomain = GetSubdomain();
+            
+            using var ms = new MemoryStream();
+            await selectedFile.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024).CopyToAsync(ms);
+            var fileData = ms.ToArray();
+
+            if (gameType == "exe" && fileData.Length >= 2)
+            {
+                if (fileData[0] != 0x4D || fileData[1] != 0x5A)
+                {
+                    message = "Invalid EXE file (missing MZ header)";
+                    isError = true;
+                    isUploading = false;
+                    return;
+                }
+            }
+
+            var gameInfo = new GameInfo
+            {
+                Name = gameName,
+                GameType = gameType,
+                Description = description,
+                FileSize = selectedFile.Size
+            };
+
+            var success = await GameService.SaveGame(subdomain, gameInfo, fileData, selectedFile.Name);
+
+            if (success)
+            {
+                message = $"✅ Game uploaded successfully!<br/>Visit: <a href='http://{subdomain}.packarcade.win' target='_blank'>http://{subdomain}.packarcade.win</a>";
+                isError = false;
+                gameName = "";
+                description = "";
+                selectedFile = null;
+            }
+            else
+            {
+                message = "Failed to save game";
+                isError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+}

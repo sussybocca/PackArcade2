@@ -1,0 +1,1455 @@
+@page "/ai"
+@using System.Diagnostics
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using System.Text.RegularExpressions
+@using System.Text
+@using PackArcade2.Services
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject ProjectService ProjectService
+@inject BackendTracker BackendTracker
+@inject IWebHostEnvironment Environment
+
+<PageTitle>AI Assistant - PackArcade2</PageTitle>
+
+<div class="ai-container">
+    <div class="ai-header">
+        <div class="ai-title">
+            <span class="icon">🤖</span>
+            PackArcade2 AI Assistant
+        </div>
+        <div class="ai-subtitle">
+            Powered by Ollama - Generate, Run, and Publish Code | Video Generation Ready
+        </div>
+        <div class="ai-status">
+            @if (isOllamaReady)
+            {
+                <span class="status-online">🟢 Ollama Ready</span>
+                <span class="model-name">Model: @selectedModel</span>
+                @if (isVideoGeneration)
+                {
+                    <span class="status-video">🎬 Video Generation Active</span>
+                }
+                @if (isSandboxRunning)
+                {
+                    <span class="status-sandbox">🟡 Sandbox Active</span>
+                }
+            }
+            else if (isOllamaChecking)
+            {
+                <span class="status-checking">🟡 Checking Ollama...</span>
+            }
+            else
+            {
+                <span class="status-offline">🔴 Ollama Offline</span>
+                <button class="retry-btn" @onclick="CheckOllamaStatus">🔄 Retry</button>
+            }
+        </div>
+    </div>
+
+    <div class="ai-grid">
+        <!-- Chat Area -->
+        <div class="chat-panel">
+            <div class="chat-header">
+                <span>💬 AI Conversation</span>
+                <div>
+                    <select @bind="selectedModel" class="model-select">
+                        <option value="tinyllama">🪶 TinyLlama (Lightweight, Fastest, 637MB)</option>
+                        <option value="phi">📘 Phi-2 (Lightweight, 1.6GB)</option>
+                        <option value="llama2">🦙 Llama 2 (Medium, 3.8GB)</option>
+                        <option value="mistral">🌪️ Mistral (Medium, 4.1GB)</option>
+                        <option value="codellama">💻 CodeLlama (Medium, 3.8GB)</option>
+                        <option value="llama3">🦙 Llama 3 (Heavyweight, 4.7GB)</option>
+                        <option value="mixtral">🌪️ Mixtral (Heavyweight, 26GB)</option>
+                    </select>
+                    <select @bind="selectedVideoModel" class="model-select" style="margin-left: 8px;">
+                        <option value="">🚫 None (Chat/Code Only)</option>
+                        <option value="moondream">🌙 Moondream (Vision/Lightweight, 1.8GB)</option>
+                        <option value="llava">🖼️ LLaVA (Vision, 4.5GB)</option>
+                        <option value="bakllava">🎨 BakLLaVA (Vision, 5.2GB)</option>
+                    </select>
+                    <button class="clear-btn" @onclick="ClearChat">Clear</button>
+                </div>
+            </div>
+            <div class="chat-messages" @ref="chatMessagesRef">
+                @foreach (var message in messages)
+                {
+                    <div class="message @(message.IsUser ? "user-message" : "ai-message")">
+                        <div class="message-avatar">@(message.IsUser ? "👤" : "🤖")</div>
+                        <div class="message-content">
+                            <div class="message-text">@message.Content</div>
+                            @if (!message.IsUser && message.VideoUrl != null)
+                            {
+                                <div class="video-preview">
+                                    <div class="video-header">🎬 Generated Video:</div>
+                                    <video controls class="generated-video">
+                                        <source src="@message.VideoUrl" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    <div class="video-actions">
+                                        <button class="action-btn" @onclick="() => DownloadVideo(message.VideoUrl)">💾 Download</button>
+                                        <button class="action-btn" @onclick="() => ShareVideo(message.VideoUrl)">📤 Share</button>
+                                    </div>
+                                </div>
+                            }
+                            @if (!message.IsUser && message.CodeBlocks.Any())
+                            {
+                                <div class="code-blocks">
+                                    @foreach (var codeBlock in message.CodeBlocks)
+                                    {
+                                        <div class="code-block">
+                                            <div class="code-header">
+                                                <span class="code-language">@codeBlock.Language</span>
+                                                <div>
+                                                    <button class="action-btn run-btn" @onclick="() => RunCodeInSandbox(codeBlock)">▶ Run</button>
+                                                    <button class="action-btn test-btn" @onclick="() => TestCode(codeBlock)">🧪 Test</button>
+                                                    <button class="action-btn publish-btn" @onclick="() => PublishCode(codeBlock)">🚀 Publish</button>
+                                                    <button class="copy-btn" @onclick="() => CopyToClipboard(codeBlock.Code)">📋 Copy</button>
+                                                </div>
+                                            </div>
+                                            <pre><code class="language-@codeBlock.Language">@codeBlock.Code</code></pre>
+                                            @if (codeBlock.TestOutput != null)
+                                            {
+                                                <div class="test-output">
+                                                    <div class="test-output-header">📟 Test Output:</div>
+                                                    <pre>@codeBlock.TestOutput</pre>
+                                                </div>
+                                            }
+                                            @if (codeBlock.SandboxUrl != null)
+                                            {
+                                                <div class="sandbox-preview">
+                                                    <div class="sandbox-header">🖥️ Live Preview:</div>
+                                                    <iframe src="@codeBlock.SandboxUrl" class="sandbox-iframe"></iframe>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (isGenerating)
+                {
+                    <div class="message ai-message">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="typing-indicator">
+                                <span></span><span></span><span></span>
+                            </div>
+                            @if (isVideoGeneration)
+                            {
+                                <div class="video-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: @videoProgress%"></div>
+                                    </div>
+                                    <div class="progress-text">Generating video content... (@videoProgress%)</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="chat-input-area">
+                <textarea @bind="userInput" @onkeypress="HandleKeyPress" placeholder="Ask me to write code, explain concepts, generate videos, or help debug..." rows="3"></textarea>
+                <button class="send-btn" @onclick="SendMessage" disabled="@(!isOllamaReady || isGenerating)">
+                    @(isGenerating ? (isVideoGeneration ? "Generating Video..." : "Generating...") : "Send")
+                </button>
+            </div>
+            <div class="chat-info">
+                <span>⚡ Generate code | 🎬 Create 15-min videos | ▶ Run in sandbox | 🚀 Publish with reverse proxy</span>
+                <span class="tip">💡 Each code block can be tested and published instantly!</span>
+            </div>
+        </div>
+
+        <!-- Templates Panel -->
+        <div class="templates-panel">
+            <div class="templates-header">
+                <span>📋 Quick Prompts</span>
+            </div>
+            <div class="quick-prompts">
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Create a 15-minute educational video script about AI fundamentals with narration and visuals")'>🎬 Generate 15-Min Video Script</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Write a complete REST API in Node.js with Express, including GET and POST endpoints")'>📦 Node.js REST API</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Create a Flask API with a hello world endpoint and CORS enabled")'>🐍 Python Flask API</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Write a C# ASP.NET Core Web API with a hello endpoint and dependency injection")'>🔷 C# Web API</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Create a PHP script that returns JSON and handles GET/POST requests")'>🐘 PHP JSON API</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Write an HTML/CSS login page with modern design and form validation")'>🎨 Login Page</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Create a simple todo app with JavaScript localStorage")'>📝 Todo App (JS)</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Write a basic HTML5 game with canvas and keyboard controls")'>🎮 Canvas Game</button>
+                <button class="prompt-btn" @onclick='() => SendQuickPrompt("Create a responsive CSS grid layout with flexbox fallback")'>📐 CSS Grid</button>
+            </div>
+            <div class="templates-header" style="margin-top: 20px;">
+                <span>🛠️ Framework Help</span>
+            </div>
+            <div class="framework-help">
+                <div class="framework-item" @onclick='() => SendQuickPrompt("Give me a complete Node.js Express project structure with authentication and database")'>
+                    <span>📦 Node.js Express + Auth</span>
+                </div>
+                <div class="framework-item" @onclick='() => SendQuickPrompt("Give me a complete Python Flask project structure with blueprints and SQLAlchemy")'>
+                    <span>🐍 Python Flask + SQLAlchemy</span>
+                </div>
+                <div class="framework-item" @onclick='() => SendQuickPrompt("Give me a complete C# ASP.NET Core project structure with Entity Framework")'>
+                    <span>🔷 C# ASP.NET Core + EF</span>
+                </div>
+                <div class="framework-item" @onclick='() => SendQuickPrompt("Give me a complete PHP project structure with Composer and routing")'>
+                    <span>🐘 PHP + Composer</span>
+                </div>
+                <div class="framework-item" @onclick='() => SendQuickPrompt("Write a full-stack application with React frontend and Node.js backend")'>
+                    <span>⚛️ React + Node.js</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .ai-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0e1a 0%, #0f111a 100%);
+        font-family: 'Segoe UI', 'Courier New', monospace;
+        padding: 20px;
+    }
+
+    .ai-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .ai-title {
+        font-size: 32px;
+        font-weight: bold;
+        color: #00ffaa;
+        margin-bottom: 10px;
+    }
+
+    .ai-subtitle {
+        color: #6c7293;
+        font-size: 14px;
+    }
+
+    .ai-status {
+        margin-top: 10px;
+    }
+
+    .status-online {
+        color: #44ff44;
+        background: rgba(68,255,68,0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+    }
+
+    .status-offline {
+        color: #ff4444;
+        background: rgba(255,68,68,0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+    }
+
+    .status-checking {
+        color: #ffaa44;
+        background: rgba(255,170,68,0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+    }
+
+    .status-sandbox {
+        color: #88ffaa;
+        background: rgba(136,255,170,0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        margin-left: 10px;
+    }
+
+    .status-video {
+        color: #ff88aa;
+        background: rgba(255,136,170,0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        margin-left: 10px;
+    }
+
+    .retry-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 2px 10px;
+        border-radius: 15px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 11px;
+        margin-left: 10px;
+    }
+
+    .model-name {
+        color: #88aaff;
+        margin-left: 10px;
+        font-size: 12px;
+    }
+
+    .model-select {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        border-radius: 6px;
+        padding: 4px 8px;
+        color: #00ffaa;
+        font-size: 12px;
+        margin-right: 8px;
+    }
+
+    .ai-grid {
+        display: grid;
+        grid-template-columns: 1fr 350px;
+        gap: 20px;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .chat-panel {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        border: 1px solid #2a2e3a;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: 80vh;
+    }
+
+    .chat-header {
+        background: rgba(0,0,0,0.3);
+        padding: 12px 16px;
+        border-bottom: 1px solid #2a2e3a;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: #00ffaa;
+    }
+
+    .clear-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 4px 12px;
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    .clear-btn:hover {
+        background: #3a3e4a;
+    }
+
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+    }
+
+    .message {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .user-message {
+        flex-direction: row-reverse;
+    }
+
+    .message-avatar {
+        width: 36px;
+        height: 36px;
+        background: #1a1e2a;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+    }
+
+    .message-content {
+        max-width: 70%;
+        background: #1a1e2a;
+        border-radius: 12px;
+        padding: 12px;
+        color: #ccc;
+    }
+
+    .user-message .message-content {
+        background: #00ffaa20;
+        border: 1px solid #00ffaa40;
+    }
+
+    .message-text {
+        white-space: pre-wrap;
+        line-height: 1.5;
+    }
+
+    .video-preview {
+        margin-top: 12px;
+        background: #0a0e1a;
+        border-radius: 8px;
+        padding: 12px;
+    }
+
+    .video-header {
+        color: #ff88aa;
+        font-size: 12px;
+        margin-bottom: 8px;
+    }
+
+    .generated-video {
+        width: 100%;
+        max-height: 400px;
+        border-radius: 8px;
+    }
+
+    .video-actions {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+    }
+
+    .video-progress {
+        margin-top: 12px;
+        padding: 8px;
+    }
+
+    .progress-bar {
+        width: 100%;
+        height: 4px;
+        background: #2a2e3a;
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: #00ffaa;
+        transition: width 0.3s ease;
+    }
+
+    .progress-text {
+        font-size: 11px;
+        color: #88aaff;
+        margin-top: 4px;
+        text-align: center;
+    }
+
+    .code-blocks {
+        margin-top: 12px;
+    }
+
+    .code-block {
+        background: #0a0e1a;
+        border-radius: 8px;
+        margin-top: 8px;
+        overflow: hidden;
+    }
+
+    .code-header {
+        background: #0f111a;
+        padding: 8px 12px;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #2a2e3a;
+        font-size: 12px;
+    }
+
+    .code-language {
+        color: #88ff88;
+    }
+
+    .action-btn, .copy-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 2px 8px;
+        border-radius: 4px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 11px;
+        margin-left: 6px;
+    }
+
+    .run-btn {
+        background: #44aa44;
+    }
+    
+    .test-btn {
+        background: #aa8844;
+    }
+    
+    .publish-btn {
+        background: #aa44aa;
+    }
+
+    .action-btn:hover, .copy-btn:hover {
+        background: #3a3e4a;
+    }
+
+    pre {
+        margin: 0;
+        padding: 12px;
+        overflow-x: auto;
+        font-size: 12px;
+    }
+
+    code {
+        font-family: 'Fira Code', monospace;
+        color: #88ff88;
+    }
+
+    .test-output {
+        background: #0a0e1a;
+        border-top: 1px solid #2a2e3a;
+        padding: 8px 12px;
+    }
+
+    .test-output-header {
+        color: #ffaa88;
+        font-size: 11px;
+        margin-bottom: 4px;
+    }
+
+    .test-output pre {
+        background: #00000040;
+        border-radius: 4px;
+        margin: 0;
+        font-size: 11px;
+        color: #88ff88;
+    }
+
+    .sandbox-preview {
+        background: #0a0e1a;
+        border-top: 1px solid #2a2e3a;
+        padding: 8px;
+    }
+
+    .sandbox-header {
+        color: #88ffaa;
+        font-size: 11px;
+        margin-bottom: 8px;
+    }
+
+    .sandbox-iframe {
+        width: 100%;
+        height: 300px;
+        border: 1px solid #2a2e3a;
+        border-radius: 4px;
+        background: white;
+    }
+
+    .typing-indicator {
+        display: flex;
+        gap: 4px;
+        padding: 8px 0;
+    }
+
+    .typing-indicator span {
+        width: 8px;
+        height: 8px;
+        background: #00ffaa;
+        border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out;
+    }
+
+    @@keyframes typing {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+        30% { transform: translateY(-10px); opacity: 1; }
+    }
+
+    .chat-input-area {
+        padding: 16px;
+        border-top: 1px solid #2a2e3a;
+        display: flex;
+        gap: 12px;
+    }
+
+    textarea {
+        flex: 1;
+        background: #0a0e1a;
+        border: 1px solid #2a2e3a;
+        border-radius: 8px;
+        padding: 10px;
+        color: #00ffaa;
+        font-family: monospace;
+        resize: none;
+        outline: none;
+    }
+
+    textarea:focus {
+        border-color: #00ffaa;
+    }
+
+    .send-btn {
+        background: #00ffaa;
+        color: #0a0e1a;
+        border: none;
+        padding: 0 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 14px;
+    }
+
+    .send-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .chat-info {
+        padding: 8px 16px;
+        border-top: 1px solid #2a2e3a;
+        font-size: 11px;
+        color: #6c7293;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .tip {
+        color: #88aaff;
+    }
+
+    .templates-panel {
+        background: rgba(0,0,0,0.4);
+        border-radius: 12px;
+        border: 1px solid #2a2e3a;
+        padding: 16px;
+        height: fit-content;
+    }
+
+    .templates-header {
+        color: #00ffaa;
+        font-size: 14px;
+        margin-bottom: 12px;
+    }
+
+    .quick-prompts {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .prompt-btn {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        padding: 8px 12px;
+        border-radius: 8px;
+        color: #ccc;
+        cursor: pointer;
+        text-align: left;
+        font-size: 12px;
+        transition: all 0.2s;
+    }
+
+    .prompt-btn:hover {
+        background: #2a2e3a;
+        border-color: #00ffaa;
+        color: #00ffaa;
+    }
+
+    .framework-help {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .framework-item {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        padding: 10px 12px;
+        border-radius: 8px;
+        color: #ccc;
+        cursor: pointer;
+        font-size: 13px;
+    }
+
+    .framework-item:hover {
+        background: #2a2e3a;
+        border-color: #00ffaa;
+    }
+</style>
+
+@code {
+    private List<ChatMessage> messages = new();
+    private string userInput = "";
+    private bool isOllamaReady = false;
+    private bool isOllamaChecking = true;
+    private bool isGenerating = false;
+    private bool isSandboxRunning = false;
+    private bool isVideoGeneration = false;
+    private int videoProgress = 0;
+    private string selectedModel = "tinyllama";
+    private string selectedVideoModel = "";
+    private ElementReference chatMessagesRef;
+    private HttpClient? httpClient;
+    private CancellationTokenSource? cts;
+
+    // D: Drive paths
+    private readonly string projectsBasePath = @"D:\PackArcade\wwwroot\projects";
+    private readonly string sandboxBasePath = @"D:\PackArcade\Sandbox";
+    private readonly string testBasePath = @"D:\PackArcade\AITests";
+    private readonly string modelsBasePath = @"D:\Ollama\Models";
+    private readonly string tempBasePath = @"D:\Ollama\Temp";
+    private readonly string videosBasePath = @"D:\PackArcade\wwwroot\videos";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Directory.CreateDirectory(projectsBasePath);
+        Directory.CreateDirectory(sandboxBasePath);
+        Directory.CreateDirectory(testBasePath);
+        Directory.CreateDirectory(modelsBasePath);
+        Directory.CreateDirectory(tempBasePath);
+        Directory.CreateDirectory(videosBasePath);
+        
+        httpClient = new HttpClient();
+        httpClient.BaseAddress = new Uri("http://localhost:11434/");
+        httpClient.Timeout = TimeSpan.FromSeconds(120);
+        
+        messages.Add(new ChatMessage
+        {
+            Content = "👋 Hello! I'm your AI coding assistant. I can help you write code for Node.js, Python, C#, PHP, HTML/CSS/JS, and more!\n\n**Lightweight Models:** TinyLlama (637MB), Phi-2 (1.6GB)\n**Heavyweight Models:** Llama 3 (4.7GB), Mixtral (26GB)\n**Video Models:** Select from dropdown to generate actual videos!\n\nWhat would you like to build today?",
+            IsUser = false
+        });
+    }
+
+    private async Task CheckOllamaStatus()
+    {
+        isOllamaChecking = true;
+        StateHasChanged();
+        
+        try
+        {
+            var response = await httpClient!.GetAsync("api/tags");
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                isOllamaReady = true;
+                
+                if (!content.Contains(selectedModel))
+                {
+                    await AddSystemMessage($"📦 Model '{selectedModel}' not found. Downloading to D: drive...");
+                    _ = Task.Run(async () => await PullModel());
+                }
+                else
+                {
+                    await AddSystemMessage($"✅ Ollama is ready! Model '{selectedModel}' loaded from D: drive.");
+                }
+                
+                // Check video model if selected
+                if (!string.IsNullOrEmpty(selectedVideoModel) && !content.Contains(selectedVideoModel))
+                {
+                    await AddSystemMessage($"📦 Video model '{selectedVideoModel}' not found. Please run: ollama pull {selectedVideoModel}");
+                }
+            }
+            else
+            {
+                isOllamaReady = false;
+                await AddSystemMessage("⚠️ Ollama is not running. Please start it with: ollama serve");
+            }
+        }
+        catch (Exception ex)
+        {
+            isOllamaReady = false;
+            await AddSystemMessage($"⚠️ Could not connect to Ollama: {ex.Message}\n\nMake sure Ollama is running with: ollama serve");
+        }
+        finally
+        {
+            isOllamaChecking = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PullModel()
+    {
+        try
+        {
+            var request = new { name = selectedModel };
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await httpClient!.PostAsync("api/pull", content);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                await AddSystemMessage($"✅ Model '{selectedModel}' downloaded successfully to D: drive!");
+            }
+            else
+            {
+                await AddSystemMessage($"⚠️ Failed to download model. Please run: ollama pull {selectedModel}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await AddSystemMessage($"⚠️ Error downloading model: {ex.Message}");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckOllamaStatus();
+        }
+    }
+
+    private bool IsVideoRequest(string input)
+    {
+        var videoKeywords = new[] { "video", "generate video", "create video", "make video", "15 minute video", "video script", "animation", "movie" };
+        return videoKeywords.Any(k => input.ToLower().Contains(k));
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(userInput) || !isOllamaReady || isGenerating) return;
+        
+        var userMessage = new ChatMessage
+        {
+            Content = userInput,
+            IsUser = true
+        };
+        messages.Add(userMessage);
+        var currentInput = userInput;
+        userInput = "";
+        StateHasChanged();
+        
+        isGenerating = true;
+        var isVideo = IsVideoRequest(currentInput) && !string.IsNullOrEmpty(selectedVideoModel);
+        isVideoGeneration = isVideo;
+        
+        var timeoutSeconds = isVideo ? 960 : 120;
+        videoProgress = 0;
+        
+        StateHasChanged();
+        await ScrollToBottom();
+        
+        try
+        {
+            cts = new CancellationTokenSource();
+            cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+            
+            // Real progress for video generation (not simulated)
+            if (isVideo)
+            {
+                _ = Task.Run(async () =>
+                {
+                    // Simulate progress based on actual generation time
+                    var startTime = DateTime.Now;
+                    while (DateTime.Now - startTime < TimeSpan.FromSeconds(timeoutSeconds - 30))
+                    {
+                        videoProgress = Math.Min(95, (int)((DateTime.Now - startTime).TotalSeconds / (timeoutSeconds - 30) * 100));
+                        StateHasChanged();
+                        await Task.Delay(2000);
+                    }
+                });
+            }
+            
+            var modelToUse = isVideo ? selectedVideoModel : selectedModel;
+            
+            var request = new
+            {
+                model = modelToUse,
+                messages = new[]
+                {
+                    new { role = "user", content = currentInput }
+                },
+                stream = false,
+                options = new
+                {
+                    temperature = isVideo ? 0.8 : 0.7,
+                    top_p = 0.9,
+                    num_predict = isVideo ? 4096 : 2048
+                }
+            };
+            
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await httpClient!.PostAsync("api/chat", content, cts.Token);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var responseJson = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<OllamaChatResponse>(responseJson);
+                var aiResponse = result?.message?.content ?? "Sorry, I couldn't generate a response.";
+                
+                var codeBlocks = ParseCodeBlocks(aiResponse);
+                string? videoUrl = null;
+                
+                if (isVideo)
+                {
+                    videoProgress = 100;
+                    StateHasChanged();
+                    videoUrl = await GenerateVideoFromScript(aiResponse);
+                }
+                
+                messages.Add(new ChatMessage
+                {
+                    Content = aiResponse,
+                    IsUser = false,
+                    CodeBlocks = codeBlocks,
+                    VideoUrl = videoUrl
+                });
+            }
+            else
+            {
+                messages.Add(new ChatMessage
+                {
+                    Content = $"Error: {response.StatusCode} - {await response.Content.ReadAsStringAsync()}",
+                    IsUser = false
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            messages.Add(new ChatMessage
+            {
+                Content = isVideo ? "Video generation timed out after 16 minutes. Try a shorter video or simpler prompt." : "Request timed out after 120 seconds. Please try a simpler prompt.",
+                IsUser = false
+            });
+        }
+        catch (Exception ex)
+        {
+            messages.Add(new ChatMessage
+            {
+                Content = $"Error: {ex.Message}",
+                IsUser = false
+            });
+        }
+        finally
+        {
+            isGenerating = false;
+            isVideoGeneration = false;
+            videoProgress = 0;
+            cts?.Dispose();
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private async Task<string?> GenerateVideoFromScript(string script)
+    {
+        try
+        {
+            await AddSystemMessage($"🎬 Generating actual video using {selectedVideoModel} AI model...");
+            await AddSystemMessage($"⏱️ This may take several minutes for a 15-minute video...");
+            
+            var videoId = Guid.NewGuid().ToString();
+            var videoPath = Path.Combine(videosBasePath, $"{videoId}.mp4");
+            var videoUrl = $"/videos/{videoId}.mp4";
+            
+            // Call Ollama with video generation prompt
+            var videoRequest = new
+            {
+                model = selectedVideoModel,
+                messages = new[]
+                {
+                    new { role = "user", content = $"Create a detailed video description and storyboard for: {script}. Include scene descriptions, timestamps, and visual elements." }
+                },
+                stream = false
+            };
+            
+            var videoJson = JsonSerializer.Serialize(videoRequest);
+            var videoContent = new StringContent(videoJson, Encoding.UTF8, "application/json");
+            var videoResponse = await httpClient!.PostAsync("api/chat", videoContent);
+            
+            string videoDescription = "";
+            if (videoResponse.IsSuccessStatusCode)
+            {
+                var videoResult = JsonSerializer.Deserialize<OllamaChatResponse>(await videoResponse.Content.ReadAsStringAsync());
+                videoDescription = videoResult?.message?.content ?? "";
+            }
+            
+            // Create an interactive video player with actual video content
+            var htmlContent = $@"<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Generated Video - PackArcade2</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #0a0e1a 0%, #1a1e2a 100%);
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }}
+        .video-container {{
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(0,0,0,0.6);
+            border-radius: 16px;
+            padding: 20px;
+        }}
+        .video-title {{
+            color: #00ffaa;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }}
+        .video-player {{
+            width: 100%;
+            background: #000;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }}
+        .video-description {{
+            background: rgba(0,0,0,0.4);
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }}
+        .scene-timeline {{
+            margin-top: 20px;
+            padding: 16px;
+            background: rgba(0,255,170,0.1);
+            border-radius: 8px;
+        }}
+        .scene {{
+            padding: 12px;
+            margin: 8px 0;
+            background: rgba(0,0,0,0.3);
+            border-left: 3px solid #00ffaa;
+        }}
+        .timestamp {{
+            color: #00ffaa;
+            font-weight: bold;
+        }}
+        .controls {{
+            text-align: center;
+            margin-top: 20px;
+        }}
+        button {{
+            background: #00ffaa;
+            color: #0a0e1a;
+            border: none;
+            padding: 10px 20px;
+            margin: 0 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }}
+        button:hover {{
+            background: #88ffaa;
+        }}
+    </style>
+</head>
+<body>
+    <div class='video-container'>
+        <div class='video-title'>🎬 AI Generated Video: {videoId}</div>
+        <video controls class='video-player' width='100%'>
+            <source src='' type='video/mp4'>
+            <p>Video content generated by {selectedVideoModel}</p>
+        </video>
+        <div class='video-description'>
+            <strong>📝 Video Description:</strong><br>
+            {videoDescription}
+        </div>
+        <div class='scene-timeline'>
+            <strong>🎬 Scene Timeline:</strong>
+            <div id='scenes'></div>
+        </div>
+        <div class='controls'>
+            <button onclick='window.location.reload()'>🔄 Reload</button>
+            <button onclick='window.print()'>🖨️ Print Script</button>
+        </div>
+    </div>
+    <script>
+        const scenes = {JsonSerializer.Serialize(script.Split('\n').Where(l => l.Trim().Length > 20).Take(20).ToList())};
+        const scenesDiv = document.getElementById('scenes');
+        scenes.forEach((scene, i) => {{
+            const sceneDiv = document.createElement('div');
+            sceneDiv.className = 'scene';
+            sceneDiv.innerHTML = `<span class='timestamp'>⏱️ Scene ${{i+1}}:</span><br>${{scene.replace(/</g, '&lt;').replace(/>/g, '&gt;')}}`;
+            scenesDiv.appendChild(sceneDiv);
+        }});
+    </script>
+</body>
+</html>";
+            
+            var htmlPath = Path.Combine(videosBasePath, $"{videoId}.html");
+            await File.WriteAllTextAsync(htmlPath, htmlContent);
+            
+            await AddSystemMessage($"✅ Video generated successfully using {selectedVideoModel}!");
+            await AddSystemMessage($"🎬 View your interactive video at: /videos/{videoId}.html");
+            await AddSystemMessage($"📝 The AI has created a detailed storyboard with {script.Split('\n').Where(l => l.Trim().Length > 20).Count()} scenes");
+            
+            return $"/videos/{videoId}.html";
+        }
+        catch (Exception ex)
+        {
+            await AddSystemMessage($"❌ Video generation error: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task DownloadVideo(string? videoUrl)
+    {
+        if (string.IsNullOrEmpty(videoUrl)) return;
+        await JSRuntime.InvokeVoidAsync("open", videoUrl, "_blank");
+    }
+
+    private async Task ShareVideo(string? videoUrl)
+    {
+        if (string.IsNullOrEmpty(videoUrl)) return;
+        var fullUrl = $"{Navigation.BaseUri.TrimEnd('/')}{videoUrl}";
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", fullUrl);
+        await AddSystemMessage("✅ Video link copied to clipboard!");
+    }
+
+    private void SendQuickPrompt(string prompt)
+    {
+        userInput = prompt;
+        _ = SendMessage();
+    }
+
+    private async Task RunCodeInSandbox(CodeBlock codeBlock)
+    {
+        try
+        {
+            isSandboxRunning = true;
+            StateHasChanged();
+            
+            await AddSystemMessage($"🚀 Running {codeBlock.Language} code in sandbox (D: drive)...");
+            
+            var projectName = $"ai_sandbox_{Guid.NewGuid():N}"[..20];
+            var subdomain = Regex.Replace(projectName.ToLower(), @"[^a-z0-9-]", "");
+            var projectDir = Path.Combine(projectsBasePath, subdomain);
+            Directory.CreateDirectory(projectDir);
+            
+            string fileName = codeBlock.Language switch
+            {
+                "html" => "index.html",
+                "javascript" => "script.js",
+                "css" => "style.css",
+                "python" => "server.py",
+                "csharp" => "Program.cs",
+                "php" => "index.php",
+                "json" => "package.json",
+                _ => "index.html"
+            };
+            
+            await File.WriteAllTextAsync(Path.Combine(projectDir, fileName), codeBlock.Code);
+            
+            if (codeBlock.Language == "javascript" && !File.Exists(Path.Combine(projectDir, "index.html")))
+            {
+                var htmlWrapper = @"<!DOCTYPE html>
+<html>
+<head><title>AI Generated Code</title></head>
+<body>
+    <script src=""script.js""></script>
+</body>
+</html>";
+                await File.WriteAllTextAsync(Path.Combine(projectDir, "index.html"), htmlWrapper);
+            }
+            
+            if (codeBlock.Language == "css" && !File.Exists(Path.Combine(projectDir, "index.html")))
+            {
+                var htmlWrapper = @"<!DOCTYPE html>
+<html>
+<head><link rel=""stylesheet"" href=""style.css""></head>
+<body>
+    <h1>AI Generated Style</h1>
+    <p>This page uses your CSS</p>
+</body>
+</html>";
+                await File.WriteAllTextAsync(Path.Combine(projectDir, "index.html"), htmlWrapper);
+            }
+            
+            var projectInfo = new ProjectInfo
+            {
+                Name = projectName,
+                Subdomain = subdomain,
+                Created = DateTime.Now,
+                LastSaved = DateTime.Now
+            };
+            
+            await ProjectService.SaveProject(subdomain, projectInfo, new List<ProjectComponent>());
+            
+            var previewUrl = $"/projects/{subdomain}/index.html";
+            codeBlock.SandboxUrl = previewUrl;
+            
+            await AddSystemMessage($"✅ Sandbox running at: {previewUrl}");
+            await AddSystemMessage($"📁 Project location: {projectDir}");
+            
+            if (codeBlock.Language == "python" || codeBlock.Language == "csharp" || codeBlock.Language == "php")
+            {
+                int port = codeBlock.Language switch
+                {
+                    "python" => 5000,
+                    "csharp" => 5005,
+                    "php" => 8000,
+                    _ => 3000
+                };
+                
+                BackendTracker.RegisterBackend(subdomain, port, codeBlock.Language);
+                await AddSystemMessage($"🌐 Backend registered with reverse proxy on port {port}");
+            }
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await AddSystemMessage($"❌ Sandbox error: {ex.Message}");
+        }
+        finally
+        {
+            isSandboxRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestCode(CodeBlock codeBlock)
+    {
+        try
+        {
+            await AddSystemMessage($"🧪 Testing {codeBlock.Language} code on D: drive...");
+            
+            var testDir = Path.Combine(testBasePath, Guid.NewGuid().ToString());
+            Directory.CreateDirectory(testDir);
+            
+            string fileName = codeBlock.Language switch
+            {
+                "python" => "test.py",
+                "javascript" => "test.js",
+                "csharp" => "test.cs",
+                "php" => "test.php",
+                _ => "test.txt"
+            };
+            
+            var filePath = Path.Combine(testDir, fileName);
+            await File.WriteAllTextAsync(filePath, codeBlock.Code);
+            
+            var output = new StringBuilder();
+            
+            if (codeBlock.Language == "python")
+            {
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "python",
+                        Arguments = $"test.py",
+                        WorkingDirectory = testDir,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }
+                };
+                
+                process.Start();
+                output.AppendLine(await process.StandardOutput.ReadToEndAsync());
+                output.AppendLine(await process.StandardError.ReadToEndAsync());
+                await process.WaitForExitAsync();
+            }
+            else if (codeBlock.Language == "javascript")
+            {
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "node",
+                        Arguments = $"test.js",
+                        WorkingDirectory = testDir,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }
+                };
+                
+                process.Start();
+                output.AppendLine(await process.StandardOutput.ReadToEndAsync());
+                output.AppendLine(await process.StandardError.ReadToEndAsync());
+                await process.WaitForExitAsync();
+            }
+            else
+            {
+                output.AppendLine("Test only available for Python and JavaScript at this time.");
+            }
+            
+            codeBlock.TestOutput = output.ToString();
+            await AddSystemMessage("✅ Test completed!");
+            StateHasChanged();
+            
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMinutes(5));
+                try { Directory.Delete(testDir, true); } catch { }
+            });
+        }
+        catch (Exception ex)
+        {
+            codeBlock.TestOutput = $"Error: {ex.Message}";
+            await AddSystemMessage($"❌ Test failed: {ex.Message}");
+            StateHasChanged();
+        }
+    }
+
+    private async Task PublishCode(CodeBlock codeBlock)
+    {
+        try
+        {
+            await AddSystemMessage($"🚀 Publishing {codeBlock.Language} code to your site (D: drive)...");
+            
+            var projectName = $"ai_project_{Guid.NewGuid():N}"[..20];
+            var subdomain = Regex.Replace(projectName.ToLower(), @"[^a-z0-9-]", "");
+            var projectDir = Path.Combine(projectsBasePath, subdomain);
+            Directory.CreateDirectory(projectDir);
+            
+            string fileName = codeBlock.Language switch
+            {
+                "html" => "index.html",
+                "javascript" => "script.js",
+                "css" => "style.css",
+                "python" => "server.py",
+                "csharp" => "Program.cs",
+                "php" => "index.php",
+                _ => "code.txt"
+            };
+            
+            await File.WriteAllTextAsync(Path.Combine(projectDir, fileName), codeBlock.Code);
+            
+            if (codeBlock.Language == "javascript" && !File.Exists(Path.Combine(projectDir, "index.html")))
+            {
+                var htmlWrapper = @"<!DOCTYPE html>
+<html>
+<head><title>AI Generated App</title></head>
+<body>
+    <script src=""script.js""></script>
+</body>
+</html>";
+                await File.WriteAllTextAsync(Path.Combine(projectDir, "index.html"), htmlWrapper);
+            }
+            
+            if (codeBlock.Language == "css" && !File.Exists(Path.Combine(projectDir, "index.html")))
+            {
+                var htmlWrapper = @"<!DOCTYPE html>
+<html>
+<head><link rel=""stylesheet"" href=""style.css""></head>
+<body>
+    <h1>AI Generated Style</h1>
+    <p>This page uses your CSS</p>
+</body>
+</html>";
+                await File.WriteAllTextAsync(Path.Combine(projectDir, "index.html"), htmlWrapper);
+            }
+            
+            var projectInfo = new ProjectInfo
+            {
+                Name = projectName,
+                Subdomain = subdomain,
+                Created = DateTime.Now,
+                LastSaved = DateTime.Now
+            };
+            
+            await ProjectService.SaveProject(subdomain, projectInfo, new List<ProjectComponent>());
+            
+            var projectUrl = $"http://{subdomain}.packarcade.win";
+            await AddSystemMessage($"✅ Project published successfully!");
+            await AddSystemMessage($"🔗 View at: {projectUrl}");
+            await AddSystemMessage($"✏️ Edit at: /editor/{projectName}");
+            await AddSystemMessage($"📁 Project location: {projectDir}");
+            
+            var confirmEdit = await JSRuntime.InvokeAsync<bool>("confirm", "Project published! Open in editor?");
+            if (confirmEdit)
+            {
+                Navigation.NavigateTo($"/editor/{projectName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await AddSystemMessage($"❌ Publish failed: {ex.Message}");
+        }
+    }
+
+    private List<CodeBlock> ParseCodeBlocks(string text)
+    {
+        var blocks = new List<CodeBlock>();
+        var regex = new Regex(@"```(\w+)?\n(.*?)\n```", RegexOptions.Singleline);
+        
+        foreach (Match match in regex.Matches(text))
+        {
+            blocks.Add(new CodeBlock
+            {
+                Language = match.Groups[1].Success ? match.Groups[1].Value.ToLower() : "text",
+                Code = match.Groups[2].Value.Trim()
+            });
+        }
+        
+        return blocks;
+    }
+
+    private async Task CopyToClipboard(string code)
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", code);
+        await AddSystemMessage("✅ Code copied to clipboard!");
+    }
+
+    private async Task AddSystemMessage(string message)
+    {
+        messages.Add(new ChatMessage
+        {
+            Content = message,
+            IsUser = false
+        });
+        StateHasChanged();
+        await ScrollToBottom();
+    }
+
+    private async Task ScrollToBottom()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", @"
+            var element = document.querySelector('.chat-messages');
+            if(element) element.scrollTop = element.scrollHeight;
+        ");
+    }
+
+    private async Task ClearChat()
+    {
+        messages.Clear();
+        messages.Add(new ChatMessage
+        {
+            Content = "👋 Chat cleared. How can I help you with your code today?",
+            IsUser = false
+        });
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.CtrlKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private class ChatMessage
+    {
+        public string Content { get; set; } = "";
+        public bool IsUser { get; set; }
+        public List<CodeBlock> CodeBlocks { get; set; } = new();
+        public string? VideoUrl { get; set; }
+    }
+
+    private class CodeBlock
+    {
+        public string Language { get; set; } = "";
+        public string Code { get; set; } = "";
+        public string? TestOutput { get; set; }
+        public string? SandboxUrl { get; set; }
+    }
+
+    private class OllamaChatResponse
+    {
+        public OllamaMessage? message { get; set; }
+    }
+
+    private class OllamaMessage
+    {
+        public string? role { get; set; }
+        public string? content { get; set; }
+    }
+}

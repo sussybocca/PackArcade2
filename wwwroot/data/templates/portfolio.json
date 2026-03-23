@@ -1,0 +1,23 @@
+{
+  "Id": "portfolio",
+  "Name": "Static Portfolio",
+  "Description": "HTML/CSS/JS portfolio template",
+  "Type": "static",
+  "Files": [
+    {
+      "Name": "index.html",
+      "Type": "html",
+      "Content": "\u003C!DOCTYPE html\u003E\r\n\u003Chtml\u003E\r\n\u003Chead\u003E\r\n    \u003Ctitle\u003EMy Portfolio\u003C/title\u003E\r\n    \u003Clink rel=\u0027stylesheet\u0027 href=\u0027style.css\u0027\u003E\r\n\u003C/head\u003E\r\n\u003Cbody\u003E\r\n    \u003Cheader\u003E\r\n        \u003Ch1\u003EMy Portfolio\u003C/h1\u003E\r\n        \u003Cnav\u003E\r\n            \u003Ca href=\u0027#home\u0027\u003EHome\u003C/a\u003E\r\n            \u003Ca href=\u0027#projects\u0027\u003EProjects\u003C/a\u003E\r\n            \u003Ca href=\u0027#contact\u0027\u003EContact\u003C/a\u003E\r\n        \u003C/nav\u003E\r\n    \u003C/header\u003E\r\n    \u003Cmain\u003E\r\n        \u003Csection id=\u0027home\u0027\u003E\r\n            \u003Ch2\u003EWelcome to my portfolio\u003C/h2\u003E\r\n            \u003Cp\u003EI\u0027m a developer creating amazing things.\u003C/p\u003E\r\n        \u003C/section\u003E\r\n        \u003Csection id=\u0027projects\u0027\u003E\r\n            \u003Ch2\u003EMy Projects\u003C/h2\u003E\r\n            \u003Cdiv class=\u0027project-grid\u0027\u003E\r\n                \u003Cdiv class=\u0027project\u0027\u003EProject 1\u003C/div\u003E\r\n                \u003Cdiv class=\u0027project\u0027\u003EProject 2\u003C/div\u003E\r\n                \u003Cdiv class=\u0027project\u0027\u003EProject 3\u003C/div\u003E\r\n            \u003C/div\u003E\r\n        \u003C/section\u003E\r\n        \u003Csection id=\u0027contact\u0027\u003E\r\n            \u003Ch2\u003EContact Me\u003C/h2\u003E\r\n            \u003Cform id=\u0027contact-form\u0027\u003E\r\n                \u003Cinput type=\u0027email\u0027 placeholder=\u0027Your email\u0027 required\u003E\r\n                \u003Ctextarea placeholder=\u0027Your message\u0027 required\u003E\u003C/textarea\u003E\r\n                \u003Cbutton type=\u0027submit\u0027\u003ESend\u003C/button\u003E\r\n            \u003C/form\u003E\r\n        \u003C/section\u003E\r\n    \u003C/main\u003E\r\n    \u003Cscript src=\u0027script.js\u0027\u003E\u003C/script\u003E\r\n\u003C/body\u003E\r\n\u003C/html\u003E"
+    },
+    {
+      "Name": "style.css",
+      "Type": "css",
+      "Content": "* { margin: 0; padding: 0; box-sizing: border-box; }\r\nbody { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\r\nheader { background: #333; color: #fff; padding: 1rem; text-align: center; }\r\nnav a { color: #fff; margin: 0 1rem; text-decoration: none; }\r\nmain { max-width: 1200px; margin: 0 auto; padding: 2rem; }\r\nsection { margin-bottom: 3rem; }\r\n.project-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }\r\n.project { background: #f4f4f4; padding: 2rem; text-align: center; border-radius: 5px; }\r\nform { display: flex; flex-direction: column; gap: 1rem; max-width: 500px; }\r\ninput, textarea { padding: 0.5rem; border: 1px solid #ddd; border-radius: 3px; }\r\nbutton { background: #333; color: #fff; padding: 0.5rem 1rem; border: none; cursor: pointer; }\r\n@media (max-width: 768px) { .project-grid { grid-template-columns: 1fr; } }"
+    },
+    {
+      "Name": "script.js",
+      "Type": "js",
+      "Content": "document.getElementById(\u0027contact-form\u0027)?.addEventListener(\u0027submit\u0027, function(e) {\n    e.preventDefault();\n    alert(\u0027Message sent! (This is a demo)\u0027);\n    this.reset();\n});"
+    }
+  ]
+}

@@ -1,0 +1,1227 @@
+@page "/pk-storage"
+@using PackArcade2.Services
+@using System.Text.Json
+@using System.Net.Http
+@using System.Text
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>PK Storage - 1TB Free Cloud Storage - PackArcade2</PageTitle>
+
+<div class="pk-container">
+    <div class="pk-header">
+        <h1>💾 PK STORAGE</h1>
+        <p>1TB Free Cloud Storage + SQL Database | Powered by PackArcade2 VHD Storage Array</p>
+    </div>
+
+    @if (!hasApiKey)
+    {
+        <div class="generate-section">
+            <div class="hero-card">
+                <div class="hero-icon">🚀</div>
+                <h2>Get Your Free 1TB Storage</h2>
+                <p>Generate your API key and start storing files instantly! No credit card required.</p>
+                <div class="features">
+                    <div class="feature">
+                        <span class="feature-icon">💾</span>
+                        <span>1TB Storage</span>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🗄️</span>
+                        <span>SQL Database</span>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🔒</span>
+                        <span>RLS Protection</span>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🌐</span>
+                        <span>REST API Access</span>
+                    </div>
+                </div>
+                <button class="generate-btn" @onclick="GenerateApiKey" disabled="@isGenerating">
+                    @(isGenerating ? "Generating..." : "🔑 Generate API Key")
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="storage-dashboard">
+            <!-- API Key Display -->
+            <div class="api-key-card">
+                <h3>🔐 Your API Key</h3>
+                <div class="key-display">
+                    <code>@apiKey</code>
+                    <button class="copy-btn" @onclick="(() => CopyToClipboard(apiKey))">📋 Copy</button>
+                    <button class="refresh-btn" @onclick="RefreshKeyInfo">🔄 Refresh</button>
+                </div>
+                <div class="api-usage">
+                    <div class="usage-stat">
+                        <span class="stat-label">Created:</span>
+                        <span class="stat-value">@(keyInfo?.CreatedAt.ToString("yyyy-MM-dd HH:mm") ?? "N/A")</span>
+                    </div>
+                    <div class="usage-stat">
+                        <span class="stat-label">Expires:</span>
+                        <span class="stat-value">@(keyInfo?.ExpiresAt.ToString("yyyy-MM-dd HH:mm") ?? "N/A")</span>
+                    </div>
+                    <div class="usage-stat">
+                        <span class="stat-label">Requests Today:</span>
+                        <span class="stat-value">@(keyInfo?.RequestsToday ?? 0)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn @(activeTab == "files" ? "active" : "")" @onclick='() => SetTab("files")'>📁 Files</button>
+                <button class="tab-btn @(activeTab == "database" ? "active" : "")" @onclick='() => SetTab("database")'>🗄️ SQL Database</button>
+            </div>
+
+            <!-- Files Tab -->
+            @if (activeTab == "files")
+            {
+                <div class="files-card">
+                    <h3>📁 Your Files</h3>
+                    <div class="upload-area">
+                        <input type="file" id="fileInput" @onchange="OnFileSelected" style="display: none;" multiple />
+                        <button class="upload-btn" @onclick="TriggerFileUpload">📤 Upload Files</button>
+                        <button class="refresh-files-btn" @onclick="LoadFileList">🔄 Refresh List</button>
+                    </div>
+
+                    @if (isLoading)
+                    {
+                        <div class="loading">Loading files...</div>
+                    }
+                    else if (files.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <span class="empty-icon">📂</span>
+                            <p>No files uploaded yet. Click "Upload Files" to get started!</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="file-list">
+                            @foreach (var file in files)
+                            {
+                                <div class="file-item">
+                                    <div class="file-info">
+                                        <span class="file-icon">📄</span>
+                                        <span class="file-name">@file</span>
+                                    </div>
+                                    <div class="file-actions">
+                                        <button class="download-btn" @onclick='(() => DownloadFile(file))'>📥 Download</button>
+                                        <button class="delete-btn" @onclick='(() => DeleteFile(file))'>🗑️ Delete</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- Database Tab -->
+            @if (activeTab == "database")
+            {
+                <div class="database-card">
+                    <h3>🗄️ SQL Database Manager</h3>
+                    
+                    <!-- Create Database -->
+                    <div class="db-section">
+                        <h4>Create New Database</h4>
+                        <div class="db-create-form">
+                            <input @bind="newDbName" placeholder="Database name" class="db-input" />
+                            <label>
+                                <input type="checkbox" @bind="enableRLS" />
+                                Enable Row Level Security (RLS)
+                            </label>
+                            <label>
+                                <input type="checkbox" @bind="isPrivate" />
+                                Private Database
+                            </label>
+                            <button class="create-db-btn" @onclick="CreateDatabase" disabled="@isDbLoading">Create Database</button>
+                        </div>
+                    </div>
+
+                    <!-- Database Selector -->
+                    <div class="db-section">
+                        <h4>Select Database</h4>
+                        <select @bind="selectedDb" class="db-select">
+                            <option value="">-- Select a database --</option>
+                            @foreach (var db in databases)
+                            {
+                                <option value="@db">@db</option>
+                            }
+                        </select>
+                        <button class="refresh-db-btn" @onclick="LoadDatabases">🔄 Refresh</button>
+                        <button class="refresh-db-btn" @onclick="LoadDatabaseSchema">📋 Load Schema</button>
+                    </div>
+
+                    <!-- SQL Query Editor -->
+                    @if (!string.IsNullOrEmpty(selectedDb))
+                    {
+                        <div class="db-section">
+                            <h4>SQL Query Editor</h4>
+                            <div class="sql-editor">
+                                <textarea @bind="sqlQuery" class="sql-textarea" placeholder="Enter your SQL query...
+                                
+Examples:
+PK_INSERT: INSERT INTO users (name, email) VALUES ('John', 'john@example.com')
+PK_SELECT: SELECT * FROM users
+PK_UPDATE: UPDATE users SET name = 'Jane' WHERE id = 1
+PK_DELETE: DELETE FROM users WHERE id = 1
+
+Or regular SQL:
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)
+SELECT * FROM users" rows="8"></textarea>
+                                <button class="execute-sql-btn" @onclick="ExecuteSql" disabled="@isDbLoading">▶ Execute Query</button>
+                            </div>
+                        </div>
+
+                        <!-- Schema Display -->
+                        <div class="db-section">
+                            <h4>Database Schema</h4>
+                            <pre class="schema-display">@databaseSchema</pre>
+                        </div>
+
+                        <!-- Query Results -->
+                        @if (!string.IsNullOrEmpty(queryResults))
+                        {
+                            <div class="db-section">
+                                <h4>Query Results</h4>
+                                <pre class="results-display">@queryResults</pre>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+
+            <!-- API Documentation -->
+            <div class="docs-card">
+                <h3>📚 API Documentation</h3>
+                <div class="api-endpoints">
+                    <div class="endpoint">
+                        <span class="method post">POST</span>
+                        <code>/api/pk-storage/upload</code>
+                        <span class="desc">Upload a file</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="method get">GET</span>
+                        <code>/api/pk-storage/download/{filename}</code>
+                        <span class="desc">Download a file</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="method delete">DELETE</span>
+                        <code>/api/pk-storage/delete/{filename}</code>
+                        <span class="desc">Delete a file</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="method get">GET</span>
+                        <code>/api/pk-storage/list</code>
+                        <span class="desc">List all files</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="method post">POST</span>
+                        <code>/api/pk-storage/database/create</code>
+                        <span class="desc">Create a database</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="method post">POST</span>
+                        <code>/api/pk-storage/database/query</code>
+                        <span class="desc">Execute SQL query</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="method get">GET</span>
+                        <code>/api/pk-storage/database/list</code>
+                        <span class="desc">List all databases</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Embed Example -->
+            <div class="embed-card">
+                <h3>🔌 Embed in Your Website</h3>
+                <p>Use this simple JavaScript to interact with PK Storage from your site:</p>
+                <pre class="code-block"><code>&lt;script&gt;
+// Initialize with your API key
+const PK_API = "@apiKey";
+
+// Upload a file
+async function uploadToPK(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('https://packarcade.win/api/pk-storage/upload', {
+        method: 'POST',
+        headers: { 'X-PK-API-Key': PK_API },
+        body: formData
+    });
+    return await response.json();
+}
+
+// Execute SQL query
+async function executeSQL(database, sql) {
+    const response = await fetch('https://packarcade.win/api/pk-storage/database/query', {
+        method: 'POST',
+        headers: { 
+            'X-PK-API-Key': PK_API,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ database, sql })
+    });
+    return await response.text();
+}
+&lt;/script&gt;</code></pre>
+                <button class="copy-code-btn" @onclick="CopyCodeExample">📋 Copy Example Code</button>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .pk-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0e1a 0%, #0f111a 100%);
+        padding: 40px 20px;
+        font-family: 'Segoe UI', monospace;
+    }
+
+    .pk-header {
+        text-align: center;
+        margin-bottom: 40px;
+    }
+
+    .pk-header h1 {
+        color: #00ffaa;
+        font-size: 48px;
+        margin-bottom: 10px;
+        text-shadow: 0 0 10px rgba(0,255,170,0.3);
+    }
+
+    .pk-header p {
+        color: #6c7293;
+        font-size: 16px;
+    }
+
+    .generate-section {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+
+    .hero-card {
+        background: rgba(0,0,0,0.5);
+        border-radius: 20px;
+        padding: 40px;
+        text-align: center;
+        border: 1px solid #00ffaa30;
+        backdrop-filter: blur(10px);
+    }
+
+    .hero-icon {
+        font-size: 80px;
+        margin-bottom: 20px;
+    }
+
+    .hero-card h2 {
+        color: #00ffaa;
+        margin-bottom: 15px;
+    }
+
+    .hero-card p {
+        color: #aaa;
+        margin-bottom: 30px;
+    }
+
+    .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .feature {
+        background: rgba(0,255,170,0.1);
+        padding: 15px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-weight: bold;
+        color: #00ffaa;
+    }
+
+    .feature-icon {
+        font-size: 24px;
+    }
+
+    .generate-btn {
+        background: linear-gradient(135deg, #00ffaa, #00cc88);
+        color: #0a0e1a;
+        border: none;
+        padding: 15px 40px;
+        font-size: 18px;
+        font-weight: bold;
+        border-radius: 50px;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .generate-btn:hover:not(:disabled) {
+        transform: scale(1.05);
+    }
+
+    .generate-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .storage-dashboard {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .tabs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 24px;
+    }
+
+    .tab-btn {
+        background: rgba(0,0,0,0.4);
+        border: 1px solid #2a2e3a;
+        padding: 12px 24px;
+        border-radius: 8px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 16px;
+        transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+        background: #00ffaa;
+        color: #0a0e1a;
+        border-color: #00ffaa;
+    }
+
+    .tab-btn:hover:not(.active) {
+        background: rgba(0,255,170,0.2);
+    }
+
+    .api-key-card, .storage-card, .files-card, .database-card, .docs-card, .embed-card {
+        background: rgba(0,0,0,0.4);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 24px;
+        border: 1px solid #2a2e3a;
+    }
+
+    .api-key-card h3, .storage-card h3, .files-card h3, .database-card h3, .docs-card h3, .embed-card h3 {
+        color: #00ffaa;
+        margin-bottom: 16px;
+    }
+
+    .key-display {
+        background: #0a0e1a;
+        padding: 15px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 15px;
+    }
+
+    .key-display code {
+        flex: 1;
+        background: #000;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-family: monospace;
+        color: #88ff88;
+        word-break: break-all;
+    }
+
+    .copy-btn, .refresh-btn, .upload-btn, .refresh-files-btn, .refresh-db-btn, .create-db-btn, .execute-sql-btn, .copy-code-btn {
+        background: #2a2e3a;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+
+    .copy-btn:hover, .refresh-btn:hover, .upload-btn:hover, .refresh-files-btn:hover, .refresh-db-btn:hover, .create-db-btn:hover, .execute-sql-btn:hover, .copy-code-btn:hover {
+        background: #00ffaa;
+        color: #0a0e1a;
+    }
+
+    .api-usage {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .usage-stat {
+        background: #1a1e2a;
+        padding: 8px 16px;
+        border-radius: 8px;
+    }
+
+    .stat-label {
+        color: #6c7293;
+        margin-right: 8px;
+    }
+
+    .stat-value {
+        color: #00ffaa;
+        font-weight: bold;
+    }
+
+    .progress-container {
+        margin: 15px 0;
+    }
+
+    .progress-bar {
+        background: #2a2e3a;
+        height: 20px;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+
+    .progress-fill {
+        background: linear-gradient(90deg, #00ffaa, #44ff44);
+        height: 100%;
+        transition: width 0.3s;
+    }
+
+    .storage-stats {
+        display: flex;
+        justify-content: space-between;
+        color: #aaa;
+        font-size: 14px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .upload-area {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .file-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px;
+        border-bottom: 1px solid #2a2e3a;
+        transition: background 0.2s;
+    }
+
+    .file-item:hover {
+        background: rgba(0,255,170,0.05);
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .file-icon {
+        font-size: 20px;
+    }
+
+    .file-name {
+        color: #fff;
+        font-family: monospace;
+    }
+
+    .file-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .download-btn, .delete-btn {
+        padding: 4px 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+
+    .download-btn {
+        background: #44aa44;
+        color: white;
+    }
+
+    .download-btn:hover {
+        background: #55cc55;
+    }
+
+    .delete-btn {
+        background: #aa4444;
+        color: white;
+    }
+
+    .delete-btn:hover {
+        background: #cc5555;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #6c7293;
+    }
+
+    .empty-icon {
+        font-size: 48px;
+        display: block;
+        margin-bottom: 16px;
+    }
+
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: #00ffaa;
+    }
+
+    .db-section {
+        margin-bottom: 24px;
+        padding: 16px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 8px;
+    }
+
+    .db-section h4 {
+        color: #00ffaa;
+        margin-bottom: 12px;
+    }
+
+    .db-create-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .db-input {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        border-radius: 6px;
+        padding: 10px;
+        color: #00ffaa;
+        font-family: monospace;
+    }
+
+    .db-select {
+        background: #1a1e2a;
+        border: 1px solid #2a2e3a;
+        border-radius: 6px;
+        padding: 10px;
+        color: #00ffaa;
+        font-family: monospace;
+        width: 100%;
+        margin-bottom: 10px;
+    }
+
+    .sql-textarea {
+        width: 100%;
+        background: #0a0e1a;
+        border: 1px solid #2a2e3a;
+        border-radius: 8px;
+        padding: 12px;
+        color: #88ff88;
+        font-family: monospace;
+        font-size: 13px;
+        resize: vertical;
+        margin-bottom: 12px;
+    }
+
+    .sql-textarea:focus {
+        outline: none;
+        border-color: #00ffaa;
+    }
+
+    .execute-sql-btn {
+        width: 100%;
+        background: #00ffaa;
+        color: #0a0e1a;
+        font-weight: bold;
+    }
+
+    .schema-display, .results-display {
+        background: #0a0e1a;
+        padding: 12px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 12px;
+        overflow-x: auto;
+        color: #88ff88;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .api-endpoints {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .endpoint {
+        background: #0a0e1a;
+        padding: 12px;
+        border-radius: 8px;
+        border-left: 4px solid;
+    }
+
+    .endpoint .method {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: bold;
+        font-size: 11px;
+        margin-right: 10px;
+    }
+
+    .method.post {
+        background: #44aa44;
+        color: white;
+        border-left-color: #44aa44;
+    }
+
+    .method.get {
+        background: #44aaff;
+        color: white;
+        border-left-color: #44aaff;
+    }
+
+    .method.delete {
+        background: #aa4444;
+        color: white;
+        border-left-color: #aa4444;
+    }
+
+    .endpoint code {
+        color: #88ff88;
+        font-family: monospace;
+        font-size: 12px;
+    }
+
+    .endpoint .desc {
+        display: block;
+        color: #aaa;
+        margin-top: 4px;
+        font-size: 11px;
+    }
+
+    .code-block {
+        background: #0a0e1a;
+        padding: 16px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin: 16px 0;
+    }
+
+    .code-block code {
+        color: #88ff88;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+    }
+
+    @@media (max-width: 768px) {
+        .pk-container {
+            padding: 20px;
+        }
+        
+        .hero-card {
+            padding: 20px;
+        }
+        
+        .key-display {
+            flex-direction: column;
+        }
+        
+        .file-item {
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+        }
+        
+        .upload-area {
+            flex-direction: column;
+        }
+        
+        .tabs {
+            flex-direction: column;
+        }
+    }
+</style>
+
+@code {
+    private bool hasApiKey = false;
+    private string apiKey = "";
+    private bool isGenerating = false;
+    private bool isLoading = false;
+    private bool isDbLoading = false;
+    private List<string> files = new();
+    private ApiKeyInfo? keyInfo;
+    private double storageUsedMB = 0;
+    private double storageUsedPercent = 0;
+    
+    // Database tab
+    private string activeTab = "files";
+    private List<string> databases = new();
+    private string selectedDb = "";
+    private string newDbName = "";
+    private bool enableRLS = true;
+    private bool isPrivate = true;
+    private string sqlQuery = "";
+    private string queryResults = "";
+    private string databaseSchema = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            apiKey = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "pk_api_key");
+            if (!string.IsNullOrEmpty(apiKey))
+            {
+                hasApiKey = true;
+                await LoadKeyInfo();
+                await LoadFileList();
+                await LoadDatabases();
+            }
+        }
+        catch { }
+    }
+
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+        StateHasChanged();
+    }
+
+    private async Task GenerateApiKey()
+    {
+        isGenerating = true;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            var response = await client.PostAsync("http://localhost:5000/api/pk-storage/generate-key", null);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<GenerateKeyResponse>(json);
+                apiKey = result?.key ?? "";
+                hasApiKey = true;
+                
+                await JSRuntime.InvokeVoidAsync("localStorage.setItem", "pk_api_key", apiKey);
+                await LoadKeyInfo();
+                await LoadFileList();
+                await LoadDatabases();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JSRuntime.InvokeVoidAsync("alert", $"Failed to generate API key: {response.StatusCode} - {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+            await JSRuntime.InvokeVoidAsync("alert", $"Error generating API key: {ex.Message}");
+        }
+        finally
+        {
+            isGenerating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadKeyInfo()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync("http://localhost:5000/api/pk-storage/list");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<ListResponse>(json);
+                
+                keyInfo = new ApiKeyInfo
+                {
+                    CreatedAt = DateTime.Now,
+                    ExpiresAt = DateTime.Now.AddYears(1),
+                    RequestsToday = result?.total_files ?? 0,
+                    StorageUsed = result?.storage_used ?? 0
+                };
+                
+                storageUsedMB = keyInfo.StorageUsed / (1024.0 * 1024.0);
+                storageUsedPercent = (keyInfo.StorageUsed / (1024.0 * 1024 * 1024 * 1024)) * 100;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading key info: {ex.Message}");
+        }
+    }
+
+    private async Task LoadFileList()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync("http://localhost:5000/api/pk-storage/list");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<ListResponse>(json);
+                files = result?.files ?? new List<string>();
+                storageUsedMB = result?.storage_used_mb ?? 0;
+                storageUsedPercent = result?.storage_used_percent ?? 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading files: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadDatabases()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync("http://localhost:5000/api/pk-storage/database/list");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<DatabaseListResponse>(json);
+                databases = result?.databases ?? new List<string>();
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading databases: {ex.Message}");
+        }
+    }
+
+    private async Task CreateDatabase()
+    {
+        if (string.IsNullOrEmpty(newDbName))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter a database name");
+            return;
+        }
+        
+        isDbLoading = true;
+        StateHasChanged();
+        
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            
+            var payload = new { name = newDbName, enableRLS = enableRLS, isPrivate = isPrivate };
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync("http://localhost:5000/api/pk-storage/database/create", content);
+            var result = await response.Content.ReadAsStringAsync();
+            
+            await JSRuntime.InvokeVoidAsync("alert", result);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                newDbName = "";
+                await LoadDatabases();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isDbLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadDatabaseSchema()
+    {
+        if (string.IsNullOrEmpty(selectedDb)) return;
+        
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            var response = await client.GetAsync($"http://localhost:5000/api/pk-storage/database/schema?database={selectedDb}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                databaseSchema = await response.Content.ReadAsStringAsync();
+            }
+            else
+            {
+                databaseSchema = "Failed to load schema";
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            databaseSchema = $"Error: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExecuteSql()
+    {
+        if (string.IsNullOrEmpty(selectedDb))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please select a database");
+            return;
+        }
+        
+        if (string.IsNullOrEmpty(sqlQuery))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Please enter a SQL query");
+            return;
+        }
+        
+        isDbLoading = true;
+        StateHasChanged();
+        
+        try
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+            
+            var payload = new { database = selectedDb, sql = sqlQuery };
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            var response = await client.PostAsync("http://localhost:5000/api/pk-storage/database/query", content);
+            queryResults = await response.Content.ReadAsStringAsync();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                queryResults = $"Error: {queryResults}";
+            }
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            queryResults = $"Error: {ex.Message}";
+            StateHasChanged();
+        }
+        finally
+        {
+            isDbLoading = false;
+        }
+    }
+
+    private async Task RefreshKeyInfo()
+    {
+        await LoadKeyInfo();
+        await LoadFileList();
+        await LoadDatabases();
+    }
+
+    private async Task TriggerFileUpload()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('fileInput').click()");
+    }
+
+  private async Task OnFileSelected(ChangeEventArgs e)
+{
+    try
+    {
+        var results = await JSRuntime.InvokeAsync<object[]>("uploadToPKStorage", apiKey, "fileInput");
+        
+        if (results != null)
+        {
+            foreach (var resultObj in results)
+            {
+                var result = JsonSerializer.Deserialize<UploadResult>(JsonSerializer.Serialize(resultObj));
+                if (result.success)
+                {
+                    await ShowAlert($"✅ Uploaded: {result.name}");
+                }
+                else
+                {
+                    await ShowAlert($"❌ Failed: {result.name} - {result.message}");
+                }
+            }
+        }
+        
+        await LoadFileList();
+        
+        // Clear the file input
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('fileInput').value = ''");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"OnFileSelected error: {ex.Message}");
+        await ShowAlert($"Error: {ex.Message}");
+    }
+}
+
+// Add this class
+private class UploadResult
+{
+    public bool success { get; set; }
+    public string name { get; set; } = "";
+    public string message { get; set; } = "";
+}
+private async Task ShowAlert(string message)
+{
+    try
+    {
+        await JSRuntime.InvokeVoidAsync("alert", message);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"ShowAlert error: {ex.Message}");
+    }
+}
+private async Task DownloadFile(string fileName)
+{
+    var url = $"http://localhost:5000/api/pk-storage/download/{fileName}?key={apiKey}";
+    await JSRuntime.InvokeVoidAsync("open", url, "_blank");
+}
+
+    private async Task DeleteFile(string fileName)
+    {
+        var confirm = await JSRuntime.InvokeAsync<bool>("confirm", $"Delete {fileName}?");
+        if (!confirm) return;
+        
+        var client = HttpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-PK-API-Key", apiKey);
+        var response = await client.DeleteAsync($"http://localhost:5000/api/pk-storage/delete/{fileName}");
+        
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadFileList();
+            await AddTerminalMessage($"🗑️ Deleted: {fileName}");
+        }
+        else
+        {
+            await AddTerminalMessage($"❌ Failed to delete: {fileName}");
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await AddTerminalMessage("✅ Copied to clipboard!");
+    }
+
+    private async Task CopyCodeExample()
+    {
+        var codeExample = $@"<script>
+const PK_API = ""{apiKey}"";
+
+async function uploadToPK(file) {{
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('https://packarcade.win/api/pk-storage/upload', {{
+        method: 'POST',
+        headers: {{ 'X-PK-API-Key': PK_API }},
+        body: formData
+    }});
+    return await response.json();
+}}
+
+async function executeSQL(database, sql) {{
+    const response = await fetch('https://packarcade.win/api/pk-storage/database/query', {{
+        method: 'POST',
+        headers: {{ 
+            'X-PK-API-Key': PK_API,
+            'Content-Type': 'application/json'
+        }},
+        body: JSON.stringify({{ database, sql }})
+    }});
+    return await response.text();
+}}
+
+async function listDatabases() {{
+    const response = await fetch('https://packarcade.win/api/pk-storage/database/list', {{
+        headers: {{ 'X-PK-API-Key': PK_API }}
+    }});
+    return await response.json();
+}}
+</script>";
+        
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", codeExample);
+        await AddTerminalMessage("✅ Code example copied to clipboard!");
+    }
+
+    private async Task AddTerminalMessage(string message)
+    {
+        Console.WriteLine(message);
+        await JSRuntime.InvokeVoidAsync("console.log", message);
+    }
+
+    private class GenerateKeyResponse
+    {
+        public string key { get; set; } = "";
+        public string message { get; set; } = "";
+    }
+
+    private class ListResponse
+    {
+        public List<string> files { get; set; } = new();
+        public int total_files { get; set; }
+        public long storage_used { get; set; }
+        public double storage_used_mb { get; set; }
+        public int storage_limit_gb { get; set; }
+        public double storage_used_percent { get; set; }
+    }
+    
+    private class DatabaseListResponse
+    {
+        public List<string> databases { get; set; } = new();
+    }
+
+    private class ApiKeyInfo
+    {
+        public DateTime CreatedAt { get; set; }
+        public DateTime ExpiresAt { get; set; }
+        public int RequestsToday { get; set; }
+        public long StorageUsed { get; set; }
+    }
+}

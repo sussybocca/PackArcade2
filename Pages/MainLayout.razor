@@ -1,0 +1,115 @@
+@using Microsoft.AspNetCore.Components.Routing
+@namespace PackArcade2.Pages
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<div class="page">
+    <div class="sidebar">
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="/">🎮 PackArcade2</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav">
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                                🏠 Home
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/dashboard">
+                                📊 Dashboard
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/create">
+                                ✨ Create
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/editor">
+                                📝 Editor
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/upload">
+                                📤 Upload
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/my-games">
+                                🎮 My Projects
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/templates">
+                                📋 Templates
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/points">
+                                ⭐ Points & Time
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/runner">
+                                🏃 Martin's Runner
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/ai">
+                                🤖 AI Assistant
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/pk-storage">
+                                💾 PK Storage
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/server-connection">
+                                🚀 Server Connection
+                            </NavLink>
+                        </li>
+                        <li class="nav-item">
+                            <NavLink class="nav-link" href="/settings">
+                                ⚙️ Settings
+                            </NavLink>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </div>
+
+    <main class="main-content">
+        <div class="container-fluid px-4" style="margin-top: 70px;">
+            @Body
+        </div>
+    </main>
+</div>
+
+<style>
+    .main-content {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .navbar-nav .nav-link {
+        padding: 0.5rem 1rem;
+        transition: all 0.3s;
+    }
+    
+    .navbar-nav .nav-link:hover {
+        background: rgba(255,255,255,0.1);
+        border-radius: 4px;
+    }
+    
+    .navbar-nav .nav-link.active {
+        background: rgba(255,255,255,0.2);
+        border-radius: 4px;
+    }
+</style>
