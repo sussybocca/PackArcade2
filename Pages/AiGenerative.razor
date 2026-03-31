@@ -1,0 +1,333 @@
+@page "/aigenerative"
+@using PackArcade2.Services
+@inject PointsService PointsService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<PageTitle>AI Generative - PackArcade2</PageTitle>
+
+<div class="ai-generative-container">
+    <div class="ai-header">
+        <h1>🤖 AI World Generator</h1>
+        <p>Create stunning, unique worlds powered by artificial intelligence</p>
+        <div class="status-badge">
+            <span class="status-dot @(isConnected ? "connected" : "connecting")"></span>
+            <span>@(isConnected ? "AI Engine Online" : "Connecting to AI Engine...")</span>
+        </div>
+    </div>
+    
+    <div class="iframe-wrapper">
+        @if (showIframe)
+        {
+            <iframe 
+                src="http://127.0.0.1:7860" 
+                class="ai-iframe"
+                @onload="OnIframeLoad"
+                @onerror="OnIframeError"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals"
+                allow="accelerometer; camera; microphone; clipboard-read; clipboard-write"
+            ></iframe>
+        }
+        else
+        {
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <h3>Starting AI Engine...</h3>
+                <p>Please wait while the AI World Generator loads</p>
+                <p class="hint">Make sure the AI service is running at <code>http://127.0.0.1:7860</code></p>
+                <button class="retry-btn" @onclick="RetryLoad">🔄 Retry Connection</button>
+            </div>
+        }
+    </div>
+    
+    <div class="ai-footer">
+        <div class="info-box">
+            <span>⚡ Powered by Stable Diffusion & DialoGPT</span>
+            <span>🎨 Generate fantasy, sci-fi, medieval, and cyberpunk worlds</span>
+            <span>🖼️ High-quality 768x768 AI-generated images</span>
+        </div>
+    </div>
+</div>
+
+<style>
+    .ai-generative-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0a0e1a 0%, #0a1a2a 100%);
+        padding: 20px;
+    }
+    
+    .ai-header {
+        text-align: center;
+        margin-bottom: 30px;
+        padding: 20px;
+    }
+    
+    .ai-header h1 {
+        font-size: 48px;
+        background: linear-gradient(135deg, #00ffaa, #00aa88);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 10px;
+    }
+    
+    .ai-header p {
+        color: #aaa;
+        font-size: 18px;
+    }
+    
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(0,0,0,0.4);
+        padding: 8px 16px;
+        border-radius: 30px;
+        margin-top: 15px;
+        font-size: 14px;
+        color: #fff;
+    }
+    
+    .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    
+    .status-dot.connected {
+        background: #00ffaa;
+        box-shadow: 0 0 10px #00ffaa;
+        animation: pulse 2s infinite;
+    }
+    
+    .status-dot.connecting {
+        background: #ffaa44;
+        animation: pulse 1s infinite;
+    }
+    
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    .iframe-wrapper {
+        position: relative;
+        width: 100%;
+        height: calc(100vh - 220px);
+        min-height: 600px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid #2a2e3a;
+        box-shadow: 0 0 30px rgba(0,255,170,0.1);
+    }
+    
+    .ai-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: #0a0e1a;
+    }
+    
+    .loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        text-align: center;
+        padding: 40px;
+    }
+    
+    .loading-spinner {
+        width: 60px;
+        height: 60px;
+        border: 4px solid #2a2e3a;
+        border-top-color: #00ffaa;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+    }
+    
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .loading-container h3 {
+        color: #00ffaa;
+        margin-bottom: 10px;
+    }
+    
+    .loading-container p {
+        color: #aaa;
+        margin-bottom: 10px;
+    }
+    
+    .loading-container .hint {
+        font-size: 12px;
+        color: #666;
+        margin-top: 20px;
+    }
+    
+    .loading-container code {
+        background: #1a1e2a;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #00ffaa;
+    }
+    
+    .retry-btn {
+        background: linear-gradient(135deg, #00ffaa, #00aa88);
+        border: none;
+        padding: 10px 24px;
+        border-radius: 8px;
+        color: #0a0e1a;
+        font-weight: bold;
+        cursor: pointer;
+        margin-top: 20px;
+        transition: all 0.2s;
+    }
+    
+    .retry-btn:hover {
+        transform: scale(1.02);
+        box-shadow: 0 0 15px rgba(0,255,170,0.5);
+    }
+    
+    .ai-footer {
+        margin-top: 20px;
+        padding: 15px;
+    }
+    
+    .info-box {
+        background: rgba(0,0,0,0.3);
+        border-radius: 12px;
+        padding: 12px 20px;
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        flex-wrap: wrap;
+        font-size: 12px;
+        color: #888;
+    }
+    
+    .info-box span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    @@media (max-width: 768px) {
+        .ai-header h1 {
+            font-size: 32px;
+        }
+        
+        .iframe-wrapper {
+            height: calc(100vh - 280px);
+            min-height: 500px;
+        }
+        
+        .info-box {
+            flex-direction: column;
+            text-align: center;
+            gap: 8px;
+        }
+    }
+</style>
+
+<script>
+    window.checkAIEngine = async function() {
+        try {
+            const response = await fetch('http://127.0.0.1:7860', {
+                method: 'HEAD',
+                mode: 'no-cors'
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    };
+</script>
+
+@code {
+    private bool showIframe = false;
+    private bool isConnected = false;
+    private System.Timers.Timer? healthCheckTimer;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckConnection();
+            StartHealthCheck();
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+    
+    private async Task CheckConnection()
+    {
+        try
+        {
+            // Try to fetch the AI engine URL to see if it's available
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(3);
+            var response = await httpClient.GetAsync("http://127.0.0.1:7860");
+            isConnected = response.IsSuccessStatusCode;
+            showIframe = isConnected;
+            StateHasChanged();
+        }
+        catch
+        {
+            isConnected = false;
+            showIframe = false;
+            StateHasChanged();
+        }
+    }
+    
+    private void StartHealthCheck()
+    {
+        healthCheckTimer?.Stop();
+        healthCheckTimer = new System.Timers.Timer(10000); // Check every 10 seconds
+        healthCheckTimer.Elapsed += async (sender, e) =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await CheckConnection();
+                StateHasChanged();
+            });
+        };
+        healthCheckTimer.Start();
+    }
+    
+    private async Task RetryLoad()
+    {
+        showIframe = false;
+        StateHasChanged();
+        await Task.Delay(500);
+        await CheckConnection();
+    }
+    
+    private void OnIframeLoad()
+    {
+        isConnected = true;
+        StateHasChanged();
+    }
+    
+    private void OnIframeError()
+    {
+        isConnected = false;
+        showIframe = false;
+        StateHasChanged();
+    }
+    
+    public void Dispose()
+    {
+        healthCheckTimer?.Stop();
+        healthCheckTimer?.Dispose();
+    }
+}
