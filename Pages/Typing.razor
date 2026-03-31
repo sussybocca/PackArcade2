@@ -1,0 +1,915 @@
+@page "/Education/Typing"
+@inject IHttpContextAccessor HttpContextAccessor
+@using PackArcade2.Services
+@using System.Text.Json
+@using System.Text
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@inject PointsService PointsService
+@inject PKStorageService PKStorageService
+
+<div class="typing-container">
+    <div class="typing-header">
+        <button class="back-btn" @onclick="GoBack">← Back to Dashboard</button>
+        <h1>@CurrentLesson?.Title ?? "Loading..."</h1>
+        <div class="lesson-info">
+            <span class="difficulty-badge difficulty-@CurrentLesson?.Difficulty">Difficulty @CurrentLesson?.Difficulty</span>
+            <span class="lesson-number">Lesson @CurrentLessonId of @TotalLessons</span>
+            <span class="points-reward">🏆 @(CurrentLesson?.PointsReward ?? 0) points</span>
+        </div>
+    </div>
+
+    <div class="instructions-panel">
+        <div class="instruction-text">@CurrentLesson?.Instructions</div>
+        <div class="target-stats">
+            <span>Target WPM: @CurrentLesson?.TargetWPM</span>
+            <span>Target Accuracy: @CurrentLesson?.TargetAccuracy%</span>
+            <span>Best WPM: @BestWPM</span>
+        </div>
+    </div>
+
+    <div class="keyboard-status">
+        <div class="finger-positions">
+            <span class="finger-left">🖐️ Left: A S D F</span>
+            <span class="finger-right">🖐️ Right: J K L ;</span>
+        </div>
+        <div class="last-keys" id="lastKeys"></div>
+    </div>
+
+    <div class="stats-panel">
+        <div class="stat">
+            <span class="stat-label">Accuracy</span>
+            <span class="stat-value">@Accuracy%</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Current WPM</span>
+            <span class="stat-value">@CurrentWPM</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Correct</span>
+            <span class="stat-value">@CorrectCount</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Errors</span>
+            <span class="stat-value">@ErrorCount</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Progress</span>
+            <span class="stat-value">@Progress%</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Time</span>
+            <span class="stat-value">@ElapsedTime</span>
+        </div>
+    </div>
+
+    <div class="lesson-text">
+        @if (CurrentLesson != null)
+        {
+            for (int i = 0; i < CurrentLesson.Text.Length; i++)
+            {
+                char c = CurrentLesson.Text[i];
+                <span class="@(i < CurrentIndex ? "char-correct" : i == CurrentIndex ? "char-current" : "char-pending")">@c</span>
+            }
+        }
+    </div>
+
+    <div class="typing-area">
+        <input type="text" @bind="UserInput" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="Start typing here..." autofocus disabled="@IsCompleted" />
+        <div class="keyboard-hint">Press SPACE after each word, ENTER to restart word if needed</div>
+    </div>
+
+    @if (ShowResult)
+    {
+        <div class="result-panel">
+            <div class="result-content">
+                <h2>@(Passed ? "🎉 Lesson Complete!" : "⚠️ Try Again")</h2>
+                <div class="result-stats">
+                    <div>Final Accuracy: <span>@FinalAccuracy%</span> @(FinalAccuracy >= (CurrentLesson?.TargetAccuracy ?? 85) ? "✅" : "❌")</div>
+                    <div>Final WPM: <span>@FinalWPM</span> @(FinalWPM >= (CurrentLesson?.TargetWPM ?? 10) ? "✅" : "❌")</div>
+                    <div>Time Spent: <span>@TimeSpent</span></div>
+                    <div>Points Earned: <span>@PointsEarned</span></div>
+                    <div>Total Points: <span>@TotalPoints</span></div>
+                </div>
+                <button class="try-again-btn" @onclick="ResetLesson">Try Again</button>
+                @if (Passed && CurrentLessonId < TotalLessons)
+                {
+                    <button class="next-lesson-btn" @onclick="NextLesson">Next Lesson →</button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    .typing-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+        font-family: 'Segoe UI', 'Courier New', monospace;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        min-height: 100vh;
+    }
+
+    .typing-header {
+        text-align: center;
+        padding: 30px 20px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 20px;
+        margin-bottom: 20px;
+        position: relative;
+    }
+
+    .back-btn {
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: rgba(255,255,255,0.1);
+        border: none;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.3s;
+    }
+
+    .back-btn:hover {
+        background: rgba(255,255,255,0.2);
+    }
+
+    .typing-header h1 {
+        font-size: 28px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 10px;
+    }
+
+    .lesson-info {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 10px;
+    }
+
+    .difficulty-badge {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+
+    .difficulty-1 { background: #4caf50; color: white; }
+    .difficulty-2 { background: #2196f3; color: white; }
+    .difficulty-3 { background: #ff9800; color: white; }
+    .difficulty-4 { background: #f44336; color: white; }
+    .difficulty-5 { background: #9c27b0; color: white; }
+
+    .lesson-number, .points-reward {
+        color: #aaa;
+        font-size: 14px;
+    }
+
+    .instructions-panel {
+        background: rgba(0,0,0,0.4);
+        border-radius: 15px;
+        padding: 15px 20px;
+        margin-bottom: 20px;
+        border-left: 4px solid #667eea;
+    }
+
+    .instruction-text {
+        color: #ccc;
+        font-size: 14px;
+        margin-bottom: 10px;
+    }
+
+    .target-stats {
+        display: flex;
+        gap: 20px;
+        font-size: 12px;
+        color: #667eea;
+    }
+
+    .keyboard-status {
+        background: rgba(0,0,0,0.5);
+        border-radius: 15px;
+        padding: 10px 20px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        font-family: monospace;
+        font-size: 14px;
+    }
+
+    .finger-positions span {
+        margin-right: 20px;
+        color: #00ffaa;
+    }
+
+    .last-keys {
+        color: #ffaa44;
+        letter-spacing: 2px;
+    }
+
+    .stats-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+    }
+
+    .stat {
+        background: rgba(255,255,255,0.1);
+        backdrop-filter: blur(10px);
+        border-radius: 15px;
+        padding: 15px;
+        text-align: center;
+    }
+
+    .stat-label {
+        display: block;
+        font-size: 12px;
+        color: #aaa;
+        margin-bottom: 5px;
+    }
+
+    .stat-value {
+        display: block;
+        font-size: 28px;
+        font-weight: bold;
+        color: #667eea;
+    }
+
+    .lesson-text {
+        background: rgba(0,0,0,0.5);
+        border-radius: 15px;
+        padding: 30px;
+        margin-bottom: 20px;
+        font-size: 28px;
+        line-height: 1.6;
+        font-family: 'Courier New', monospace;
+        text-align: center;
+        letter-spacing: 2px;
+        word-break: break-all;
+        min-height: 150px;
+    }
+
+    .char-correct {
+        color: #4caf50;
+    }
+
+    .char-current {
+        color: #ff9800;
+        text-decoration: underline;
+        background: rgba(255,152,0,0.2);
+        border-radius: 4px;
+    }
+
+    .char-pending {
+        color: #aaa;
+    }
+
+    .typing-area input {
+        width: 100%;
+        min-height: 80px;
+        background: rgba(0,0,0,0.7);
+        border: 2px solid rgba(102,126,234,0.3);
+        border-radius: 15px;
+        padding: 20px;
+        font-size: 20px;
+        font-family: 'Courier New', monospace;
+        color: #00ffaa;
+        outline: none;
+        transition: all 0.3s;
+    }
+
+    .typing-area input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 20px rgba(102,126,234,0.3);
+    }
+
+    .keyboard-hint {
+        font-size: 12px;
+        color: #666;
+        margin-top: 8px;
+        text-align: center;
+    }
+
+    .result-panel {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.95);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .result-content {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border-radius: 30px;
+        padding: 40px;
+        text-align: center;
+        max-width: 500px;
+        width: 90%;
+        border: 1px solid rgba(102,126,234,0.5);
+    }
+
+    .result-content h2 {
+        font-size: 28px;
+        margin-bottom: 20px;
+        color: #667eea;
+    }
+
+    .result-stats {
+        background: rgba(255,255,255,0.05);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 20px 0;
+        text-align: left;
+    }
+
+    .result-stats div {
+        padding: 8px 0;
+        color: white;
+        font-size: 16px;
+    }
+
+    .result-stats span {
+        float: right;
+        color: #667eea;
+        font-weight: bold;
+    }
+
+    .try-again-btn, .next-lesson-btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        color: white;
+        padding: 12px 30px;
+        border-radius: 30px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        margin: 10px;
+        transition: all 0.3s;
+    }
+
+    .next-lesson-btn {
+        background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+    }
+
+    @@media (max-width: 768px) {
+        .typing-container {
+            padding: 10px;
+        }
+        .lesson-text {
+            font-size: 20px;
+            padding: 20px;
+        }
+        .stat-value {
+            font-size: 20px;
+        }
+        .finger-positions {
+            font-size: 10px;
+        }
+    }
+</style>
+<script>
+    window.getClientIP = function() {
+        return new Promise((resolve) => {
+            fetch('https://api.ipify.org?format=json')
+                .then(response => response.json())
+                .then(data => resolve(data.ip))
+                .catch(() => resolve('127.0.0.1'));
+        });
+    };
+</script>
+@code {
+    private List<Lesson> lessons = new();
+    private Lesson? CurrentLesson => lessons.FirstOrDefault(l => l.Id == CurrentLessonId);
+    private int CurrentLessonId = 1;
+    private int CurrentIndex = 0;
+    private int CorrectCount = 0;
+    private int ErrorCount = 0;
+    private DateTime StartTime;
+    private System.Timers.Timer? timer;
+    private bool IsCompleted = false;
+    private bool ShowResult = false;
+    private bool Passed = false;
+    private string UserInput = "";
+    private int TotalLessons = 100;
+    private string AccountId = "";
+    private int BestWPM = 0;
+    private int PointsEarned = 0;
+    private int TotalPoints = 0;
+    private List<string> LastKeys = new();
+    private DateTime LastKeyTime;
+
+    private double Accuracy => (CorrectCount + ErrorCount) > 0 ? Math.Round((double)CorrectCount / (CorrectCount + ErrorCount) * 100, 1) : 100;
+    private int CurrentWPM
+    {
+        get
+        {
+            var elapsedMinutes = (DateTime.Now - StartTime).TotalMinutes;
+            var wordsTyped = CorrectCount / 5.0;
+            return elapsedMinutes > 0 ? (int)Math.Round(wordsTyped / elapsedMinutes) : 0;
+        }
+    }
+    private double Progress => CurrentLesson != null ? Math.Round((double)CurrentIndex / CurrentLesson.Text.Length * 100, 1) : 0;
+    private string ElapsedTime => ((int)(DateTime.Now - StartTime).TotalSeconds).ToString();
+    private double FinalAccuracy { get; set; }
+    private int FinalWPM { get; set; }
+    private string TimeSpent { get; set; } = "";
+
+    protected override async Task OnInitializedAsync()
+{
+    await InitializeLessons();
+    // Don't call LoadUserProgress here - wait for JS to be ready
+}
+
+protected override async Task OnAfterRenderAsync(bool firstRender)
+{
+    if (firstRender)
+    {
+        // Small delay to ensure JS interop is ready
+        await Task.Delay(100);
+        await LoadUserProgress();
+        StartLesson();
+        StateHasChanged();
+    }
+    await base.OnAfterRenderAsync(firstRender);
+}
+    private async Task InitializeLessons()
+    {
+        lessons = new List<Lesson>();
+        
+        for (int i = 1; i <= 100; i++)
+        {
+            int difficulty = i <= 20 ? 1 : i <= 50 ? 2 : i <= 75 ? 3 : i <= 90 ? 4 : 5;
+            int targetWPM = 10 + (i / 5);
+            int targetAccuracy = i <= 50 ? 85 : 90;
+            
+            lessons.Add(new Lesson
+            {
+                Id = i,
+                Title = GetLessonTitle(i, difficulty),
+                Difficulty = difficulty,
+                Instructions = GetInstructions(i, difficulty),
+                Text = GenerateLessonText(i, difficulty),
+                TargetWPM = targetWPM,
+                TargetAccuracy = targetAccuracy,
+                PointsReward = 40
+            });
+        }
+    }
+
+    private string GetLessonTitle(int id, int difficulty)
+    {
+        if (id <= 20) return $"Home Row & Basics {id}";
+        if (id <= 40) return $"Top Row Practice {id - 20}";
+        if (id <= 60) return $"Bottom Row & Numbers {id - 40}";
+        if (id <= 80) return $"Common Words & Sentences {id - 60}";
+        return $"Advanced Speed & Accuracy {id - 80}";
+    }
+
+    private string GetInstructions(int id, int difficulty)
+    {
+        if (difficulty == 1) return "Place fingers on home row (ASDF JKL;). Type each character exactly as shown. Focus on accuracy first.";
+        if (difficulty == 2) return "Reach up for top row (QWERTYUIOP) and down for bottom row (ZXCVBNM). Keep wrists straight.";
+        if (difficulty == 3) return "Type common words. Focus on smooth transitions between keys. Don't look at your fingers.";
+        if (difficulty == 4) return "Type full sentences. Maintain rhythm. Accuracy is more important than speed.";
+        return "Push your speed while maintaining accuracy. This is the advanced challenge!";
+    }
+
+    private string GenerateLessonText(int id, int difficulty)
+    {
+        var random = new Random(id);
+        var words = new List<string>();
+        
+        if (difficulty == 1)
+        {
+            string[] homeRow = { "asdf", "jkl;", "fdsa", ";lkj", "as", "df", "jk", "kl", "sad", "dad", "ask", "all", "has", "had" };
+            for (int i = 0; i < 15 + (id / 5); i++)
+                words.Add(homeRow[random.Next(homeRow.Length)]);
+        }
+        else if (difficulty == 2)
+        {
+            string[] topRow = { "qwerty", "uiop", "qwer", "tyui", "op", "wert", "yui", "poi", "tower", "power", "quiet", "quick", "water", "write" };
+            string[] bottomRow = { "zxcv", "bnm", "xcvb", "nm", "zebra", "xray", "candy", "vase", "brown", "mark" };
+            for (int i = 0; i < 12 + (id / 8); i++)
+                words.Add(random.Next(2) == 0 ? topRow[random.Next(topRow.Length)] : bottomRow[random.Next(bottomRow.Length)]);
+        }
+        else if (difficulty == 3)
+        {
+            string[] common = { "the", "and", "for", "you", "are", "with", "was", "have", "from", "they", "know", "want", "been", "good", "time", "word", "make", "people", "first", "long" };
+            for (int i = 0; i < 20 + (id / 4); i++)
+                words.Add(common[random.Next(common.Length)]);
+        }
+        else if (difficulty == 4)
+        {
+            string[] sentences = {
+                "The quick brown fox jumps over the lazy dog.",
+                "PackArcade is the best platform for learning and coding.",
+                "Practice makes perfect when learning to type.",
+                "Speed and accuracy both matter for professional typing.",
+                "Your fingers should always return to the home row position.",
+                "Consistent practice leads to mastery of any skill."
+            };
+            for (int i = 0; i < 3 + (id / 20); i++)
+                words.Add(sentences[random.Next(sentences.Length)]);
+        }
+        else
+        {
+            string[] advanced = {
+                "The art of typing is not merely about speed but about accuracy and rhythm.",
+                "Professional typists can achieve speeds over 100 words per minute.",
+                "Typing is a journey of continuous improvement with each keystroke.",
+                "Your dedication to improving typing skills will pay off significantly.",
+                "Mastery comes from consistent practice and proper technique."
+            };
+            for (int i = 0; i < 2 + (id / 25); i++)
+                words.Add(advanced[random.Next(advanced.Length)]);
+        }
+        
+        return string.Join(" ", words);
+    }
+
+  private async Task LoadUserProgress()
+{
+    try
+    {
+        var ip = await GetIP();
+        var storedId = await JS.InvokeAsync<string>("localStorage.getItem", "pk_account_id");
+        PKAccount? account = null;
+        
+        // First try to get account from localStorage
+        if (!string.IsNullOrEmpty(storedId))
+        {
+            account = PointsService.GetAccountById(storedId);
+            if (account != null)
+            {
+                Console.WriteLine($"[Typing] Found account by stored ID: {account.Username}");
+            }
+        }
+        
+        // If not found, try by IP
+        if (account == null)
+        {
+            account = PointsService.GetAccountByIP(ip);
+            if (account != null)
+            {
+                Console.WriteLine($"[Typing] Found account by IP: {account.Username}");
+            }
+        }
+        
+        if (account != null)
+        {
+            AccountId = account.AccountId;
+            var balanceInfo = PointsService.GetBalanceInfo(AccountId);
+            TotalPoints = balanceInfo.AvailablePoints;
+            Console.WriteLine($"[Typing] Account loaded: {account.Username}, ID: {AccountId}");
+            
+            // Check if account already has an API key stored
+            string? apiKey = account.ApiKey;
+            
+            // If no API key exists, generate one and save it to the account
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                apiKey = await PKStorageService.GenerateApiKey(ip, AccountId);
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    // Save the API key to the account
+                    account.ApiKey = apiKey;
+                    await PointsService.UpdateAccount(account);  // Use UpdateAccount, not SaveAccount
+                    Console.WriteLine($"[Typing] Generated and saved new API key to account: {apiKey}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[Typing] Using existing API key from account: {apiKey}");
+            }
+            
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                Console.WriteLine("[Typing] Failed to get API key");
+                return;
+            }
+            
+            // Load typing progress from storage using the API key
+            try
+            {
+                var progressData = await PKStorageService.RetrieveData(apiKey, $"edu_progress_{AccountId}.json");
+                if (progressData != null && progressData.Length > 0)
+                {
+                    var json = Encoding.UTF8.GetString(progressData);
+                    Console.WriteLine($"[Typing] Progress JSON: {json}");
+                    var progress = JsonSerializer.Deserialize<UserProgress>(json);
+                    if (progress != null)
+                    {
+                        CurrentLessonId = progress.CurrentLesson;
+                        BestWPM = progress.BestWPM;
+                        Console.WriteLine($"[Typing] Progress loaded: Lesson {CurrentLessonId}, Best WPM: {BestWPM}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[Typing] No saved progress found for account {AccountId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Typing] Error loading progress: {ex.Message}");
+            }
+        }
+        else
+        {
+            Console.WriteLine("[Typing] No account found!");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Typing] Error in LoadUserProgress: {ex.Message}");
+    }
+}
+
+private async Task SaveUserProgress()
+{
+    if (string.IsNullOrEmpty(AccountId))
+    {
+        Console.WriteLine("[Typing] Cannot save progress - no AccountId");
+        return;
+    }
+    
+    try
+    {
+        // Get the account to retrieve the stored API key
+        var account = PointsService.GetAccountById(AccountId);
+        if (account == null)
+        {
+            Console.WriteLine("[Typing] Account not found!");
+            return;
+        }
+        
+        string? apiKey = account.ApiKey;
+        
+        // If no API key is stored, generate one and save it
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            var ip = await GetIP();
+            apiKey = await PKStorageService.GenerateApiKey(ip, AccountId);
+            if (!string.IsNullOrEmpty(apiKey))
+            {
+                account.ApiKey = apiKey;
+                await PointsService.UpdateAccount(account);  // Use UpdateAccount, not SaveAccount
+                Console.WriteLine($"[Typing] Generated and saved new API key: {apiKey}");
+            }
+        }
+        
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            Console.WriteLine("[Typing] Failed to get API key");
+            return;
+        }
+        
+        var progress = new UserProgress
+        {
+            CurrentLesson = CurrentLessonId,
+            BestWPM = Math.Max(BestWPM, CurrentWPM),
+            LastPlayed = DateTime.UtcNow
+        };
+        
+        var json = JsonSerializer.Serialize(progress, new JsonSerializerOptions { WriteIndented = true });
+        var data = Encoding.UTF8.GetBytes(json);
+        
+        Console.WriteLine($"[Typing] Saving progress with API key: {apiKey}");
+        Console.WriteLine($"[Typing] Progress data: Lesson {progress.CurrentLesson}, Best WPM: {progress.BestWPM}");
+        
+        var success = await PKStorageService.StoreData(apiKey, $"edu_progress_{AccountId}.json", data);
+        
+        if (success)
+        {
+            Console.WriteLine($"[Typing] Progress saved successfully!");
+        }
+        else
+        {
+            Console.WriteLine($"[Typing] Failed to save progress!");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Typing] Error saving progress: {ex.Message}");
+    }
+}
+    private async Task AwardPoints()
+    {
+        if (Passed && CurrentLesson != null && !string.IsNullOrEmpty(AccountId))
+        {
+            PointsEarned = CurrentLesson.PointsReward;
+            await PointsService.AddPoints(AccountId, PointsEarned, $"Completed typing lesson {CurrentLessonId}");
+            var balanceInfo = PointsService.GetBalanceInfo(AccountId);
+            TotalPoints = balanceInfo.AvailablePoints;
+        }
+    }
+
+private async Task<string> GetIP()
+{
+    try
+    {
+        if (JS == null) return "127.0.0.1";
+        var ip = await JS.InvokeAsync<string>("getClientIP");
+        return string.IsNullOrEmpty(ip) ? "127.0.0.1" : ip;
+    }
+    catch
+    {
+        return "127.0.0.1";
+    }
+}
+
+    private void StartLesson()
+    {
+        CurrentIndex = 0;
+        CorrectCount = 0;
+        ErrorCount = 0;
+        IsCompleted = false;
+        ShowResult = false;
+        UserInput = "";
+        LastKeys.Clear();
+        StartTime = DateTime.Now;
+        LastKeyTime = StartTime;
+        
+        timer?.Stop();
+        timer = new System.Timers.Timer(100);
+        timer.Elapsed += (s, e) => InvokeAsync(StateHasChanged);
+        timer.Start();
+        
+        StateHasChanged();
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (IsCompleted) return;
+        
+        var key = e.Key;
+        LastKeys.Insert(0, key);
+        if (LastKeys.Count > 10) LastKeys.RemoveAt(10);
+        
+        if (key == "Enter")
+        {
+            if (UserInput.Length > 0)
+            {
+                CheckWord(UserInput);
+                UserInput = "";
+            }
+        }
+    }
+
+   private void CheckWord(string word)
+{
+    if (CurrentLesson == null || IsCompleted) return;
+    
+    var currentWord = GetCurrentWord();
+    
+    // Trim the word to remove any trailing spaces
+    string trimmedWord = word.Trim();
+    string trimmedCurrentWord = currentWord.Trim();
+    
+    if (trimmedWord == trimmedCurrentWord)
+    {
+        // Correct word - add all characters in the word
+        int wordLength = currentWord.Length;
+        CorrectCount += wordLength;
+        CurrentIndex += wordLength;
+        
+        // Skip any spaces after the word
+        while (CurrentIndex < CurrentLesson.Text.Length && CurrentLesson.Text[CurrentIndex] == ' ')
+        {
+            CurrentIndex++;
+        }
+        
+        StateHasChanged();
+    }
+    else
+    {
+        // Wrong word - count errors for each character in the word
+        int wordLength = currentWord.Length;
+        ErrorCount += wordLength;
+        CurrentIndex += wordLength;
+        
+        // Skip any spaces after the word
+        while (CurrentIndex < CurrentLesson.Text.Length && CurrentLesson.Text[CurrentIndex] == ' ')
+        {
+            CurrentIndex++;
+        }
+        
+        StateHasChanged();
+    }
+    
+    // Clear input after processing
+    UserInput = "";
+    
+    if (CurrentIndex >= CurrentLesson.Text.Length)
+    {
+        CompleteLesson();
+    }
+}
+private bool _isLoaded = false;
+
+
+
+
+   private string GetCurrentWord()
+{
+    if (CurrentLesson == null) return "";
+    
+    // Find the start of the current word (skip any spaces)
+    int start = CurrentIndex;
+    while (start < CurrentLesson.Text.Length && CurrentLesson.Text[start] == ' ')
+        start++;
+    
+    // If we're at the end, return empty
+    if (start >= CurrentLesson.Text.Length)
+        return "";
+    
+    // Find the end of the current word (space or end of string)
+    int end = start;
+    while (end < CurrentLesson.Text.Length && CurrentLesson.Text[end] != ' ')
+        end++;
+    
+    return CurrentLesson.Text.Substring(start, end - start);
+}
+
+    private async Task CompleteLesson()
+    {
+        IsCompleted = true;
+        timer?.Stop();
+        
+        var elapsed = DateTime.Now - StartTime;
+        TimeSpent = $"{(int)elapsed.TotalMinutes}m {(int)elapsed.Seconds}s";
+        FinalAccuracy = Accuracy;
+        FinalWPM = CurrentWPM;
+        Passed = FinalAccuracy >= (CurrentLesson?.TargetAccuracy ?? 85) && FinalWPM >= (CurrentLesson?.TargetWPM ?? 10);
+        
+        if (Passed)
+        {
+            await AwardPoints();
+            await SaveUserProgress();
+        }
+        
+        ShowResult = true;
+        StateHasChanged();
+    }
+
+    private async Task ResetLesson()
+    {
+        StartLesson();
+        await Task.CompletedTask;
+    }
+
+    private async Task NextLesson()
+    {
+        if (CurrentLessonId < TotalLessons)
+        {
+            CurrentLessonId++;
+            await SaveUserProgress();
+            StartLesson();
+        }
+    }
+
+    private void GoBack()
+    {
+        NavigationManager.NavigateTo("/Education/Dashboard");
+    }
+
+    private class Lesson
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public int Difficulty { get; set; }
+        public string Instructions { get; set; } = "";
+        public string Text { get; set; } = "";
+        public int TargetWPM { get; set; }
+        public int TargetAccuracy { get; set; }
+        public int PointsReward { get; set; }
+    }
+
+    private class UserProgress
+    {
+        public int CurrentLesson { get; set; } = 1;
+        public int BestWPM { get; set; } = 0;
+        public DateTime LastPlayed { get; set; }
+    }
+}
