@@ -54,7 +54,8 @@ impl JovaCompiler {
             
             // Parse JOVA: commands
             if line.starts_with("JOVA:") {
-                let cmd = &line[5..].trim();
+                let cmd_raw = (&line[5..]).trim();
+                let cmd = cmd_raw.to_string(); // FIXED: convert to String
                 
                 if cmd.starts_with("Import Pop") {
                     output.push_str("  // Importing modules\n");
@@ -62,14 +63,15 @@ impl JovaCompiler {
                 }
                 else if cmd == "Export All Pops and Models" || cmd == "Export All Pops and Models." {
                     output.push_str("  // Exporting all modules\n");
-                    for name in self.modules.keys() {
+                    let keys: Vec<String> = self.modules.keys().cloned().collect();
+                    for name in keys {
                         output.push_str(&format!("  window.{} = JOVA.modules['{}'];\n", name, name));
-                        self.exports.push(name.clone());
+                        self.exports.push(name);
                     }
                 }
                 else if cmd.starts_with("New Language") {
                     let re = Regex::new(r"New Language - (\w+)").unwrap();
-                    if let Some(caps) = re.captures(cmd) {
+                    if let Some(caps) = re.captures(&cmd) {
                         let lang_name = caps[1].to_string();
                         output.push_str(&format!("  // Creating new language: {}\n", lang_name));
                         output.push_str(&format!("  JOVA.languages['{}'] = {{ created: new Date() }};\n", lang_name));
@@ -81,21 +83,20 @@ impl JovaCompiler {
             
             // Parse Pop: statements
             else if line.starts_with("Pop:") {
-                let stmt = &line[4..].trim();
+                let stmt_raw = (&line[4..]).trim();
+                let stmt = stmt_raw.to_string(); // FIXED: convert to String
                 
                 if stmt.starts_with("New module") {
                     let re = Regex::new(r"New module - (\w+) - (\w+) (\d+)").unwrap();
-                    if let Some(caps) = re.captures(stmt) {
+                    if let Some(caps) = re.captures(&stmt) {
                         let name = caps[1].to_string();
-                        let type_name = caps[2].to_string();
                         let value = caps[3].to_string();
                         
                         output.push_str(&format!("  // Creating module: {}\n", name));
-                        output.push_str(&format!("  JOVA.modules['{}'] = {{ type: '{}', value: {} }};\n", name, type_name, value));
+                        output.push_str(&format!("  JOVA.modules['{}'] = {{ value: {} }};\n", name, value));
                         output.push_str(&format!("  window.{} = JOVA.modules['{}'];\n", name, name));
                         self.modules.insert(name, value);
                     } else {
-                        // Fallback for different format
                         let parts: Vec<&str> = stmt.split_whitespace().collect();
                         if parts.len() >= 4 {
                             let name = parts[2];
@@ -135,7 +136,8 @@ impl JovaCompiler {
     }
     
     pub fn get_modules(&self) -> String {
-        format!("{:?}", self.modules.keys().collect::<Vec<_>>())
+        let keys: Vec<String> = self.modules.keys().cloned().collect();
+        format!("{:?}", keys)
     }
     
     pub fn get_exports(&self) -> String {
