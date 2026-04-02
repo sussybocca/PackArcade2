@@ -203,8 +203,9 @@ impl JovaCompiler {
                             let content = caps[2].to_string();
                             let mut obj_map = HashMap::new();
                             for upload_line in content.lines() {
-                                // Single file upload - ACTUALLY READ FILE
-                                if let Some(upload_caps) = Regex::new(r"(\w+):\s*upload\(\"(.+)\"\)").unwrap().captures(upload_line) {
+                                // FIXED: use raw string with # delimiter for regex containing double quotes
+                                let single_pattern = r#"(\w+):\s*upload\("(.+)"\)"#;
+                                if let Some(upload_caps) = Regex::new(single_pattern).unwrap().captures(upload_line) {
                                     let key = upload_caps[1].to_string();
                                     let path = upload_caps[2].to_string();
                                     let full_path = Path::new(&self.base_path).join(&path);
@@ -215,8 +216,8 @@ impl JovaCompiler {
                                     };
                                     obj_map.insert(key, file_content);
                                 }
-                                // Directory upload - ACTUALLY READ DIRECTORY
-                                else if let Some(upload_all_caps) = Regex::new(r"(\w+):\s*upload_all\(\"(.+)\"\)").unwrap().captures(upload_line) {
+                                let dir_pattern = r#"(\w+):\s*upload_all\("(.+)"\)"#;
+                                if let Some(upload_all_caps) = Regex::new(dir_pattern).unwrap().captures(upload_line) {
                                     let key = upload_all_caps[1].to_string();
                                     let path = upload_all_caps[2].to_string();
                                     let full_path = Path::new(&self.base_path).join(&path);
