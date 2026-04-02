@@ -57,11 +57,11 @@ impl JovaCompiler {
                 let cmd = &line[5..].trim();
                 
                 if cmd.starts_with("Import Pop") {
-                    output.push_str(&format!("  // Importing modules\n"));
-                    output.push_str(&format!("  console.log('[JOVA] Importing');\n"));
+                    output.push_str("  // Importing modules\n");
+                    output.push_str("  console.log('[JOVA] Importing');\n");
                 }
                 else if cmd == "Export All Pops and Models" || cmd == "Export All Pops and Models." {
-                    output.push_str(&format!("  // Exporting all modules\n"));
+                    output.push_str("  // Exporting all modules\n");
                     for name in self.modules.keys() {
                         output.push_str(&format!("  window.{} = JOVA.modules['{}'];\n", name, name));
                         self.exports.push(name.clone());
