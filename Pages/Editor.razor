@@ -10,6 +10,9 @@
 @using System.Runtime.InteropServices
 @using System.Net.Mail
 @using System.Net
+@using Docker.DotNet;
+@using Docker.DotNet.Models;
+
 @inject ProjectService ProjectService
 @inject NavigationManager Navigation
 @inject IWebHostEnvironment Environment
@@ -151,12 +154,62 @@
         <div class="col-md-2 bg-dark text-white p-2" style="overflow-y: auto; border-right: 1px solid #444;">
             <h6 class="mb-3">Files</h6>
             <div class="file-list">
-                @foreach (var file in projectFiles)
+                @foreach (var folder in GetFileTree())
+                {
+                    <div class="folder-item">
+                        <div class="folder-header" @onclick="() => ToggleFolder(folder)">
+                            <span class="folder-icon">📁</span>
+                            <span>@folder.Name</span>
+                            <span class="folder-toggle">@(folder.IsExpanded ? "▼" : "▶")</span>
+                        </div>
+                        @if (folder.IsExpanded)
+                        {
+                            <div class="folder-content" style="padding-left: 20px;">
+                                @foreach (var subfolder in folder.Children)
+                                {
+                                    <div class="folder-item">
+                                        <div class="folder-header" @onclick="() => ToggleFolder(subfolder)">
+                                            <span class="folder-icon">📁</span>
+                                            <span>@subfolder.Name</span>
+                                            <span class="folder-toggle">@(subfolder.IsExpanded ? "▼" : "▶")</span>
+                                        </div>
+                                        @if (subfolder.IsExpanded)
+                                        {
+                                            <div class="folder-content" style="padding-left: 20px;">
+                                                @foreach (var file in subfolder.Files)
+                                                {
+                                                    <div class="file-item @(selectedFile == file.Name ? "active" : "")" 
+                                                         @onclick="@(() => SelectFile(file.Name))">
+                                                        <span class="file-icon">@GetFileIcon(file.Name)</span>
+                                                        @file.DisplayName
+                                                        <button class="btn-close btn-close-white float-end" style="font-size: 0.5rem;" 
+                                                                @onclick="@(() => DeleteFile(file.Name))"></button>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                @foreach (var file in folder.Files)
+                                {
+                                    <div class="file-item @(selectedFile == file.Name ? "active" : "")" 
+                                         @onclick="@(() => SelectFile(file.Name))">
+                                        <span class="file-icon">@GetFileIcon(file.Name)</span>
+                                        @file.DisplayName
+                                        <button class="btn-close btn-close-white float-end" style="font-size: 0.5rem;" 
+                                                @onclick="@(() => DeleteFile(file.Name))"></button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                @foreach (var file in projectFiles.Where(f => string.IsNullOrEmpty(f.FolderPath)))
                 {
                     <div class="file-item @(selectedFile == file.Name ? "active" : "")" 
                          @onclick="@(() => SelectFile(file.Name))">
                         <span class="file-icon">@GetFileIcon(file.Name)</span>
-                        @file.Name
+                        @file.DisplayName
                         <button class="btn-close btn-close-white float-end" style="font-size: 0.5rem;" 
                                 @onclick="@(() => DeleteFile(file.Name))"></button>
                     </div>
@@ -475,6 +528,36 @@
     .badge {
         cursor: pointer;
     }
+    .folder-item {
+    margin: 2px 0;
+}
+
+.folder-header {
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.folder-header:hover {
+    background: #3a3a3a;
+}
+
+.folder-icon {
+    font-size: 0.9rem;
+}
+
+.folder-toggle {
+    margin-left: auto;
+    font-size: 0.7rem;
+}
+
+.folder-content {
+    margin-left: 8px;
+    border-left: 1px solid #444;
+}
 </style>
 
 <script>
@@ -657,7 +740,11 @@
     private const uint NORMAL_PRIORITY_CLASS = 0x0020;
     private const uint IDLE_PRIORITY_CLASS = 0x0040;
     private const uint CTRL_C_EVENT = 0;
-
+// Add these with your other properties
+private FileSystemWatcher? _fileWatcher;
+private System.Threading.Timer? _debounceTimer;
+private string _debounceFile = "";
+private bool _isFileWatcherActive = false;
     protected override async Task OnInitializedAsync()
     {
         // Initialize paths
@@ -754,7 +841,203 @@
             consoleOutput.Add($"Error loading email config: {ex.Message}");
         }
     }
-    
+private void InitializeFileWatcher()
+{
+    try
+    {
+        var subdomain = GetSubdomain();
+        var projectPath = Path.Combine(Environment.WebRootPath, "projects", subdomain);
+        
+        if (!Directory.Exists(projectPath))
+        {
+            Directory.CreateDirectory(projectPath);
+        }
+        
+        _fileWatcher?.Dispose();
+        _fileWatcher = new FileSystemWatcher(projectPath)
+        {
+            IncludeSubdirectories = true,
+            EnableRaisingEvents = true,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
+        };
+        
+        _fileWatcher.Created += OnFileChanged;
+        _fileWatcher.Changed += OnFileChanged;
+        _fileWatcher.Deleted += OnFileDeleted;
+        _fileWatcher.Renamed += OnFileRenamed;
+        _fileWatcher.Error += OnFileWatcherError;
+        
+        _isFileWatcherActive = true;
+        consoleOutput.Add($"> 📁 File watcher active for: {projectPath}");
+    }
+    catch (Exception ex)
+    {
+        consoleOutput.Add($"⚠️ File watcher error: {ex.Message}");
+    }
+}
+
+private async void OnFileChanged(object sender, FileSystemEventArgs e)
+{
+    try
+    {
+        if (_debounceTimer != null)
+        {
+            _debounceTimer.Dispose();
+        }
+        
+        _debounceFile = e.FullPath;
+        _debounceTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                var relativePath = Path.GetRelativePath(Path.Combine(Environment.WebRootPath, "projects", GetSubdomain()), e.FullPath);
+                
+                if (File.Exists(e.FullPath))
+                {
+                    var content = await File.ReadAllTextAsync(e.FullPath);
+                    
+                    var existingFile = projectFiles.FirstOrDefault(f => f.Name == relativePath);
+                    
+                    if (existingFile != null)
+                    {
+                        existingFile.Content = content;
+                        
+                        if (selectedFile == relativePath)
+                        {
+                            fileContent = content;
+                            await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
+                            consoleOutput.Add($"> 🔄 File updated: {relativePath}");
+                        }
+                    }
+                    else
+                    {
+                        var newFile = new ProjectFile
+                        {
+                            Name = relativePath,
+                            DisplayName = Path.GetFileName(relativePath),
+                            FolderPath = Path.GetDirectoryName(relativePath)?.Replace('\\', '/') ?? "",
+                            Type = GetFileType(relativePath),
+                            Content = content
+                        };
+                        projectFiles.Add(newFile);
+                        consoleOutput.Add($"> 📄 New file detected: {relativePath}");
+                    }
+                    
+                    await SaveAnalytics();
+                    StateHasChanged();
+                }
+            });
+        }, null, 500, Timeout.Infinite);
+    }
+    catch (Exception ex)
+    {
+        consoleOutput.Add($"⚠️ File change error: {ex.Message}");
+    }
+}
+
+private async void OnFileDeleted(object sender, FileSystemEventArgs e)
+{
+    try
+    {
+        await InvokeAsync(() =>
+        {
+            var relativePath = Path.GetRelativePath(Path.Combine(Environment.WebRootPath, "projects", GetSubdomain()), e.FullPath);
+            
+            var fileToRemove = projectFiles.FirstOrDefault(f => f.Name == relativePath);
+            if (fileToRemove != null)
+            {
+                projectFiles.Remove(fileToRemove);
+                consoleOutput.Add($"> 🗑️ File deleted: {relativePath}");
+                
+                if (selectedFile == relativePath && projectFiles.Any())
+                {
+                    selectedFile = projectFiles.First().Name;
+                    fileContent = projectFiles.First().Content;
+                    _ = JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
+                }
+                
+                StateHasChanged();
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        consoleOutput.Add($"⚠️ File delete error: {ex.Message}");
+    }
+}
+
+private async void OnFileRenamed(object sender, RenamedEventArgs e)
+{
+    try
+    {
+        await InvokeAsync(() =>
+        {
+            var oldRelativePath = Path.GetRelativePath(Path.Combine(Environment.WebRootPath, "projects", GetSubdomain()), e.OldFullPath);
+            var newRelativePath = Path.GetRelativePath(Path.Combine(Environment.WebRootPath, "projects", GetSubdomain()), e.FullPath);
+            
+            var fileToRename = projectFiles.FirstOrDefault(f => f.Name == oldRelativePath);
+            if (fileToRename != null)
+            {
+                fileToRename.Name = newRelativePath;
+                fileToRename.DisplayName = Path.GetFileName(newRelativePath);
+                fileToRename.FolderPath = Path.GetDirectoryName(newRelativePath)?.Replace('\\', '/') ?? "";
+                
+                consoleOutput.Add($"> ✏️ File renamed: {oldRelativePath} -> {newRelativePath}");
+                
+                if (selectedFile == oldRelativePath)
+                {
+                    selectedFile = newRelativePath;
+                }
+                
+                StateHasChanged();
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        consoleOutput.Add($"⚠️ File rename error: {ex.Message}");
+    }
+}
+
+private void OnFileWatcherError(object sender, System.IO.ErrorEventArgs e)
+{
+    var ex = e.GetException();
+    _ = InvokeAsync(() =>
+    {
+        consoleOutput.Add($"⚠️ File watcher error: {ex.Message}");
+        _isFileWatcherActive = false;
+        
+        _ = Task.Delay(5000).ContinueWith(_ =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                InitializeFileWatcher();
+            });
+        });
+    });
+}
+
+private string GetFileType(string fileName)
+{
+    var extension = Path.GetExtension(fileName).ToLower();
+    return extension switch
+    {
+        ".html" => "html",
+        ".css" => "css",
+        ".js" => "js",
+        ".cs" => "cs",
+        ".py" => "py",
+        ".php" => "php",
+        ".json" => "json",
+        ".fn.js" => "function",
+        _ => string.IsNullOrEmpty(extension) ? "apprunner" : "text"
+    };
+}
+    private void ToggleFolder(FileTreeNode folder)
+{
+    folder.IsExpanded = !folder.IsExpanded;
+    StateHasChanged();
+}
     private async Task SendEmailAsync(string to, string subject, string body)
     {
         if (smtpClient == null)
@@ -934,6 +1217,51 @@
             statusMessage = $"Error forking project: {ex.Message}";
         }
     }
+    // Add this to your @code section to organize files by folder structure
+private List<FileTreeNode> GetFileTree()
+{
+    var root = new FileTreeNode { Name = "", Path = "", Children = new List<FileTreeNode>(), Files = new List<ProjectFile>() };
+    var folderMap = new Dictionary<string, FileTreeNode>();
+    
+    foreach (var file in projectFiles)
+    {
+        if (string.IsNullOrEmpty(file.FolderPath))
+        {
+            root.Files.Add(file);
+        }
+        else
+        {
+            var parts = file.FolderPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var currentPath = "";
+            FileTreeNode current = root;
+            
+            foreach (var part in parts)
+            {
+                var newPath = string.IsNullOrEmpty(currentPath) ? part : currentPath + "/" + part;
+                if (!folderMap.ContainsKey(newPath))
+                {
+                    var newNode = new FileTreeNode { Name = part, Path = newPath, Children = new List<FileTreeNode>(), Files = new List<ProjectFile>() };
+                    folderMap[newPath] = newNode;
+                    current.Children.Add(newNode);
+                }
+                current = folderMap[newPath];
+                currentPath = newPath;
+            }
+            current.Files.Add(file);
+        }
+    }
+    
+    return root.Children;
+}
+
+private class FileTreeNode
+{
+    public string Name { get; set; } = "";
+    public string Path { get; set; } = "";
+    public List<FileTreeNode> Children { get; set; } = new();
+    public List<ProjectFile> Files { get; set; } = new();
+    public bool IsExpanded { get; set; } = true;
+}
     
     private async Task ToggleCollaboratorStatus()
     {
@@ -1977,40 +2305,193 @@ pause";
         }
     }
 
-    private async Task LoadProject()
+  private async Task LoadProject()
+{
+    Console.WriteLine("=== LOADPROJECT CALLED ===");
+    try
     {
-        try
+        var subdomain = GetSubdomain();
+        var projectPath = Path.Combine(Environment.WebRootPath, "projects", subdomain);
+        
+        Console.WriteLine($"Subdomain: {subdomain}");
+        Console.WriteLine($"Project Path: {projectPath}");
+        Console.WriteLine($"Directory Exists: {Directory.Exists(projectPath)}");
+        
+        // LOG 1: Starting
+        consoleOutput.Add($"🔍 [LOAD] Starting - Subdomain: {subdomain}");
+        consoleOutput.Add($"🔍 [LOAD] Project Path: {projectPath}");
+        
+        // Create directory if it doesn't exist
+        if (!Directory.Exists(projectPath))
         {
-            var subdomain = GetSubdomain();
-            var files = await ProjectService.GetProjectFiles(subdomain);
+            Console.WriteLine("Directory does NOT exist - creating new project");
+            consoleOutput.Add($"⚠️ [LOAD] Directory does NOT exist: {projectPath}");
+            consoleOutput.Add($"📁 [LOAD] Creating directory...");
+            Directory.CreateDirectory(projectPath);
+            consoleOutput.Add($"📁 [LOAD] Creating default files...");
+            CreateDefaultFiles();
+            consoleOutput.Add($"✅ [LOAD] Default files created, count: {projectFiles.Count}");
+        }
+        else
+        {
+            Console.WriteLine($"Directory EXISTS - scanning for files");
+            consoleOutput.Add($"✅ [LOAD] Directory exists: {projectPath}");
             
-            if (files != null && files.Any())
+            // Scan the actual file system for all files
+            projectFiles.Clear();
+            
+            // Get all files recursively from the project folder
+            var allFiles = Directory.GetFiles(projectPath, "*", SearchOption.AllDirectories);
+            Console.WriteLine($"Found {allFiles.Length} total files");
+            consoleOutput.Add($"📁 [LOAD] Found {allFiles.Length} total files in directory");
+            
+            foreach (var filePath in allFiles)
             {
-                projectFiles = files.Select(f => new ProjectFile
-                {
-                    Name = f.Name,
-                    Type = f.Type,
-                    Content = f.Content
-                }).ToList();
+                // Get relative path from project root
+                var relativePath = Path.GetRelativePath(projectPath, filePath).Replace('\\', '/');
+                var fileName = Path.GetFileName(filePath);
+                var folderPath = Path.GetDirectoryName(relativePath)?.Replace('\\', '/') ?? "";
                 
-                selectedFile = projectFiles.First().Name;
-                fileContent = projectFiles.First().Content;
+                Console.WriteLine($"  File: {relativePath} | Folder: '{folderPath}'");
+                consoleOutput.Add($"  📄 Processing: {relativePath} (Folder: '{folderPath}')");
+                
+                // Read file content
+                var content = await File.ReadAllTextAsync(filePath);
+                
+                // Determine file type from extension
+                var extension = Path.GetExtension(fileName).ToLower();
+                string type = extension switch
+                {
+                    ".html" => "html",
+                    ".css" => "css",
+                    ".js" => "js",
+                    ".cs" => "cs",
+                    ".py" => "py",
+                    ".php" => "php",
+                    ".json" => "json",
+                    ".fn.js" => "function",
+                    _ => string.IsNullOrEmpty(extension) ? "apprunner" : "text"
+                };
+                
+                projectFiles.Add(new ProjectFile
+                {
+                    Name = relativePath,
+                    DisplayName = fileName,
+                    FolderPath = folderPath,
+                    Type = type,
+                    Content = content
+                });
+            }
+            
+            Console.WriteLine($"Loaded {projectFiles.Count} files");
+            consoleOutput.Add($"📁 [LOAD] Loaded {projectFiles.Count} files from file system");
+            
+            // Also check for AppRunner files in AppRunners path
+            var appRunnerPath = Path.Combine(appRunnersPath, subdomain);
+            if (Directory.Exists(appRunnerPath))
+            {
+                Console.WriteLine($"Checking AppRunner path: {appRunnerPath}");
+                consoleOutput.Add($"🔍 [LOAD] Checking AppRunner path: {appRunnerPath}");
+                var appRunnerFiles = Directory.GetFiles(appRunnerPath, "*", SearchOption.AllDirectories);
+                foreach (var filePath in appRunnerFiles)
+                {
+                    var fileName = Path.GetFileName(filePath);
+                    var relativePath = fileName;
+                    var content = await File.ReadAllTextAsync(filePath);
+                    
+                    projectFiles.Add(new ProjectFile
+                    {
+                        Name = relativePath,
+                        DisplayName = fileName,
+                        FolderPath = "",
+                        Type = "apprunner",
+                        Content = content
+                    });
+                    Console.WriteLine($"  AppRunner file: {fileName}");
+                    consoleOutput.Add($"  🚀 AppRunner file: {fileName}");
+                }
+            }
+            
+            // Also check for Function files
+            var functionsPathForProject = Path.Combine(functionsPath, subdomain);
+            if (Directory.Exists(functionsPathForProject))
+            {
+                Console.WriteLine($"Checking Functions path: {functionsPathForProject}");
+                consoleOutput.Add($"🔍 [LOAD] Checking Functions path: {functionsPathForProject}");
+                var functionFiles = Directory.GetFiles(functionsPathForProject, "*.fn.js", SearchOption.AllDirectories);
+                foreach (var filePath in functionFiles)
+                {
+                    var fileName = Path.GetFileName(filePath);
+                    var content = await File.ReadAllTextAsync(filePath);
+                    
+                    projectFiles.Add(new ProjectFile
+                    {
+                        Name = fileName,
+                        DisplayName = fileName,
+                        FolderPath = "",
+                        Type = "function",
+                        Content = content
+                    });
+                    Console.WriteLine($"  Function file: {fileName}");
+                    consoleOutput.Add($"  ⚡ Function file: {fileName}");
+                }
+            }
+            
+            if (!projectFiles.Any())
+            {
+                Console.WriteLine("No files found, creating defaults");
+                consoleOutput.Add($"⚠️ [LOAD] No files found, creating defaults");
+                CreateDefaultFiles();
             }
             else
             {
-                CreateDefaultFiles();
+                selectedFile = projectFiles.First().Name;
+                fileContent = projectFiles.First().Content;
+                Console.WriteLine($"First file selected: {selectedFile}");
+                consoleOutput.Add($"✅ [LOAD] First file selected: {selectedFile}");
             }
-            
-            statusMessage = "Project loaded successfully";
-            await SaveAnalytics();
         }
-        catch (Exception ex)
+        
+        // DEBUG: Print all loaded files
+        Console.WriteLine($"========== FILE DEBUG START ==========");
+        Console.WriteLine($"Total files in projectFiles: {projectFiles.Count}");
+        consoleOutput.Add($"========== FILE DEBUG START ==========");
+        consoleOutput.Add($"Total files in projectFiles: {projectFiles.Count}");
+        foreach (var f in projectFiles)
         {
-            statusMessage = $"Error loading project: {ex.Message}";
-            CreateDefaultFiles();
+            Console.WriteLine($"File: {f.Name}");
+            Console.WriteLine($"  DisplayName: {f.DisplayName}");
+            Console.WriteLine($"  FolderPath: '{f.FolderPath}'");
+            Console.WriteLine($"  Type: {f.Type}");
+            Console.WriteLine($"---");
+            consoleOutput.Add($"File: {f.Name}");
+            consoleOutput.Add($"  DisplayName: {f.DisplayName}");
+            consoleOutput.Add($"  FolderPath: '{f.FolderPath}'");
+            consoleOutput.Add($"  Type: {f.Type}");
+            consoleOutput.Add($"---");
         }
+        Console.WriteLine($"========== FILE DEBUG END ==========");
+        consoleOutput.Add($"========== FILE DEBUG END ==========");
+        
+        // Initialize file watcher to monitor changes
+        InitializeFileWatcher();
+        
+        statusMessage = $"Project loaded from: {projectPath}";
+        consoleOutput.Add($"> 📁 Loaded {projectFiles.Count} files from {projectPath}");
+        await SaveAnalytics();
+        StateHasChanged();
     }
-
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ ERROR in LoadProject: {ex.Message}");
+        Console.WriteLine($"Stack trace: {ex.StackTrace}");
+        consoleOutput.Add($"❌ [LOAD] EXCEPTION: {ex.Message}");
+        consoleOutput.Add($"❌ [LOAD] StackTrace: {ex.StackTrace}");
+        statusMessage = $"Error loading project: {ex.Message}";
+        CreateDefaultFiles();
+        InitializeFileWatcher();
+    }
+}
     private void CreateDefaultFiles()
     {
         projectFiles = new List<ProjectFile>
@@ -2115,71 +2596,123 @@ return result;" }
 
     private string GetProjectUrl() => $"http://{GetSubdomain()}.packarcade.win";
 
-    private async Task SelectFile(string fileName)
+   private async Task SelectFile(string fileName)
+{
+    selectedFile = fileName;
+    var file = projectFiles.FirstOrDefault(f => f.Name == fileName);
+    if (file != null)
     {
-        selectedFile = fileName;
-        var file = projectFiles.FirstOrDefault(f => f.Name == fileName);
-        if (file != null)
+        fileContent = file.Content;
+        await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
+        
+        // Optional: Log which file was opened
+        if (!string.IsNullOrEmpty(file.FolderPath))
         {
-            fileContent = file.Content;
-            await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
+            consoleOutput.Add($"> Opened: {file.FolderPath}/{file.DisplayName}");
         }
     }
+}
 
     private async Task AddNewFile()
+{
+    var fileName = await JSRuntime.InvokeAsync<string>("prompt", "Enter file name (e.g., script.js, folder/file.js, hello.fn.js for functions):");
+    if (!string.IsNullOrEmpty(fileName))
     {
-        var fileName = await JSRuntime.InvokeAsync<string>("prompt", "Enter file name (e.g., script.js, hello.fn.js for functions):");
-        if (!string.IsNullOrEmpty(fileName))
+        // Parse folder path and filename
+        string folderPath = "";
+        string actualFileName = fileName;
+        
+        if (fileName.Contains("/"))
         {
-            var extension = Path.GetExtension(fileName).ToLower();
-            string type;
+            var parts = fileName.Split('/');
+            folderPath = string.Join("/", parts.Take(parts.Length - 1));
+            actualFileName = parts.Last();
+        }
+        
+        var extension = Path.GetExtension(actualFileName).ToLower();
+        string type;
+        
+        if (actualFileName.EndsWith(".fn.js"))
+        {
+            type = "function";
+            consoleOutput.Add($"> Function file created: {fileName}");
             
-            if (fileName.EndsWith(".fn.js"))
-            {
-                type = "function";
-                consoleOutput.Add($"> Function file created: {fileName}");
-            }
-            else if (string.IsNullOrEmpty(extension))
-            {
-                type = "apprunner";
-                string appRunnerFolder = Path.Combine(appRunnersPath, fileName);
-                Directory.CreateDirectory(appRunnerFolder);
-                string tsFilePath = Path.Combine(appRunnerFolder, $"{fileName}.ts");
-                await File.WriteAllTextAsync(tsFilePath, @"// TypeScript AppRunner
-console.log('AppRunner started: ' + __filename);
-setInterval(() => {
-    console.log('Heartbeat...');
-}, 30000);");
-                consoleOutput.Add($"> Created AppRunner folder: {fileName}");
-            }
-            else
-            {
-                type = extension switch
-                {
-                    ".html" => "html",
-                    ".css" => "css",
-                    ".js" => "js",
-                    ".cs" => "cs",
-                    ".py" => "py",
-                    ".php" => "php",
-                    ".json" => "json",
-                    _ => "text"
-                };
-            }
-
+            // Add to project files with folder structure
             projectFiles.Add(new ProjectFile
             {
                 Name = fileName,
+                DisplayName = actualFileName,
+                FolderPath = folderPath,
+                Type = type,
+                Content = GetDefaultContent(type)
+            });
+        }
+        else if (string.IsNullOrEmpty(extension))
+        {
+            type = "apprunner";
+            
+            // Create AppRunner folder structure (handle nested folders)
+            string fullAppRunnerPath = Path.Combine(appRunnersPath, fileName);
+            Directory.CreateDirectory(fullAppRunnerPath);
+            
+            // Create the TypeScript file
+            string tsFilePath = Path.Combine(fullAppRunnerPath, $"{actualFileName}.ts");
+            string defaultContent = GetDefaultContent("apprunner");
+            await File.WriteAllTextAsync(tsFilePath, defaultContent);
+            
+            consoleOutput.Add($"> Created AppRunner folder: {fullAppRunnerPath}");
+            consoleOutput.Add($"> Created TypeScript file: {tsFilePath}");
+            
+            // Add to project files with folder structure
+            projectFiles.Add(new ProjectFile
+            {
+                Name = fileName,
+                DisplayName = actualFileName,
+                FolderPath = folderPath,
+                Type = type,
+                Content = defaultContent
+            });
+        }
+        else
+        {
+            // Handle regular files (html, css, js, cs, py, php, json, etc.)
+            type = extension switch
+            {
+                ".html" => "html",
+                ".css" => "css",
+                ".js" => "js",
+                ".cs" => "cs",
+                ".py" => "py",
+                ".php" => "php",
+                ".json" => "json",
+                _ => "text"
+            };
+            
+            projectFiles.Add(new ProjectFile
+            {
+                Name = fileName,
+                DisplayName = actualFileName,
+                FolderPath = folderPath,
                 Type = type,
                 Content = GetDefaultContent(type)
             });
             
-            selectedFile = fileName;
-            fileContent = GetDefaultContent(type);
-            await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
-            StateHasChanged();
+            if (!string.IsNullOrEmpty(folderPath))
+            {
+                consoleOutput.Add($"> Created file: {actualFileName} in folder: {folderPath}");
+            }
         }
+        
+        selectedFile = fileName;
+        fileContent = projectFiles.Last().Content;
+        await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
+        StateHasChanged();
+        
+        // Immediately save the project
+        await SaveProject();
     }
+}
+
 
     private string GetDefaultContent(string type) => type switch
     {
@@ -2212,108 +2745,190 @@ return result;",
     };
 
     private async Task DeleteFile(string fileName)
+{
+    if (projectFiles.Count <= 1)
     {
-        if (projectFiles.Count <= 1)
-        {
-            statusMessage = "Cannot delete the last file";
-            return;
-        }
-
-        var confirm = await JSRuntime.InvokeAsync<bool>("confirm", $"Delete {fileName}?");
-        if (confirm)
-        {
-            var file = projectFiles.FirstOrDefault(f => f.Name == fileName);
-            if (file?.Type == "apprunner")
-            {
-                string appRunnerFolder = Path.Combine(appRunnersPath, fileName);
-                try
-                {
-                    Directory.Delete(appRunnerFolder, true);
-                    consoleOutput.Add($"> Deleted AppRunner folder: {fileName}");
-                }
-                catch { }
-            }
-
-            projectFiles.RemoveAll(f => f.Name == fileName);
-            
-            if (selectedFile == fileName)
-            {
-                selectedFile = projectFiles.First().Name;
-                fileContent = projectFiles.First().Content;
-                await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
-            }
-            
-            StateHasChanged();
-            statusMessage = $"Deleted {fileName}";
-        }
+        statusMessage = "Cannot delete the last file";
+        return;
     }
 
-    private async Task SaveProject()
+    var confirm = await JSRuntime.InvokeAsync<bool>("confirm", $"Delete {fileName}?");
+    if (confirm)
     {
-        statusMessage = "Saving...";
+        var file = projectFiles.FirstOrDefault(f => f.Name == fileName);
         
-        try
+        // Handle AppRunner file deletion with folder structure
+        if (file?.Type == "apprunner")
         {
-            fileContent = await JSRuntime.InvokeAsync<string>("getEditorContent");
-            
-            var currentFile = projectFiles.FirstOrDefault(f => f.Name == selectedFile);
-            if (currentFile != null)
+            // Handle nested folder paths for AppRunner
+            string fullAppRunnerPath = Path.Combine(appRunnersPath, fileName);
+            try
             {
-                currentFile.Content = fileContent;
-                
-                if (currentFile.Type == "apprunner")
+                if (Directory.Exists(fullAppRunnerPath))
                 {
-                    string appRunnerFolder = Path.Combine(appRunnersPath, currentFile.Name);
-                    Directory.CreateDirectory(appRunnerFolder);
-                    string tsFilePath = Path.Combine(appRunnerFolder, $"{currentFile.Name}.ts");
-                    await File.WriteAllTextAsync(tsFilePath, fileContent);
+                    Directory.Delete(fullAppRunnerPath, true);
+                    consoleOutput.Add($"> Deleted AppRunner folder: {fileName}");
+                }
+                else
+                {
+                    // Try to find by display name if full path doesn't exist
+                    string appRunnerName = file.DisplayName;
+                    string altPath = Path.Combine(appRunnersPath, appRunnerName);
+                    if (Directory.Exists(altPath))
+                    {
+                        Directory.Delete(altPath, true);
+                        consoleOutput.Add($"> Deleted AppRunner folder: {appRunnerName}");
+                    }
                 }
             }
-
-            var subdomain = GetSubdomain();
-            
-            foreach (var file in projectFiles)
+            catch (Exception ex)
             {
-                await ProjectService.SaveProjectFile(subdomain, file.Name, file.Content);
+                consoleOutput.Add($"> Warning: Could not delete AppRunner folder: {ex.Message}");
             }
-
-            var projectInfo = new ProjectInfo
+        }
+        
+        // Handle function files
+        if (file?.Type == "function")
+        {
+            string functionsFolder = Path.Combine(functionsPath, Path.GetFileNameWithoutExtension(file.DisplayName));
+            try
             {
-                Name = projectName,
-                Subdomain = subdomain,
-                LastSaved = DateTime.Now
-            };
-
-            await ProjectService.SaveProject(subdomain, projectInfo, new List<ProjectComponent>());
-            
-            await CreateBackup(subdomain);
-            
-            analyticsData.Edits++;
-            analyticsData.RecentActivity.Insert(0, new Activity { Timestamp = DateTime.Now, Description = $"Edited {selectedFile}" });
-            if (analyticsData.RecentActivity.Count > 50) analyticsData.RecentActivity = analyticsData.RecentActivity.Take(50).ToList();
-            
-            // Update top files
-            var fileStats = analyticsData.TopFiles.FirstOrDefault(f => f.Name == selectedFile);
-            if (fileStats != null)
+                if (Directory.Exists(functionsFolder))
+                {
+                    Directory.Delete(functionsFolder, true);
+                    consoleOutput.Add($"> Deleted Function folder: {functionsFolder}");
+                }
+            }
+            catch (Exception ex)
             {
-                fileStats.Edits++;
+                consoleOutput.Add($"> Warning: Could not delete Function folder: {ex.Message}");
+            }
+        }
+
+        // Remove the file from projectFiles
+        projectFiles.RemoveAll(f => f.Name == fileName);
+        
+        // If the deleted file was the selected one, select another file
+        if (selectedFile == fileName)
+        {
+            selectedFile = projectFiles.First().Name;
+            fileContent = projectFiles.First().Content;
+            await JSRuntime.InvokeVoidAsync("setEditorContent", fileContent);
+            
+            // Log which file was selected after deletion
+            var newFile = projectFiles.First();
+            if (!string.IsNullOrEmpty(newFile.FolderPath))
+            {
+                consoleOutput.Add($"> Now editing: {newFile.FolderPath}/{newFile.DisplayName}");
             }
             else
             {
-                analyticsData.TopFiles.Add(new FileStats { Name = selectedFile, Edits = 1 });
-                analyticsData.TopFiles = analyticsData.TopFiles.OrderByDescending(f => f.Edits).Take(10).ToList();
+                consoleOutput.Add($"> Now editing: {newFile.DisplayName}");
             }
-            
-            await SaveAnalytics();
-            
-            statusMessage = "Project saved successfully!";
         }
-        catch (Exception ex)
+        
+        StateHasChanged();
+        statusMessage = $"Deleted {fileName}";
+        consoleOutput.Add($"> Deleted file: {fileName}");
+        
+        // Save project after deletion
+        await SaveProject();
+    }
+}
+
+    private async Task SaveProject()
+{
+    statusMessage = "Saving...";
+    
+    try
+    {
+        // Get current editor content
+        fileContent = await JSRuntime.InvokeAsync<string>("getEditorContent");
+        
+        // Update the current file in projectFiles
+        var currentFile = projectFiles.FirstOrDefault(f => f.Name == selectedFile);
+        if (currentFile != null)
         {
-            statusMessage = $"Error saving: {ex.Message}";
-            await SaveErrorLog(new ErrorLog { Level = "Error", Message = ex.Message, StackTrace = ex.StackTrace, Timestamp = DateTime.Now });
+            currentFile.Content = fileContent;
+            
+            // Save AppRunner files to the dedicated AppRunners folder
+            if (currentFile.Type == "apprunner")
+            {
+                string appRunnerFolder = Path.Combine(appRunnersPath, currentFile.Name);
+                Directory.CreateDirectory(appRunnerFolder);
+                string tsFilePath = Path.Combine(appRunnerFolder, $"{currentFile.Name}.ts");
+                await File.WriteAllTextAsync(tsFilePath, fileContent);
+                consoleOutput.Add($"> Saved AppRunner file: {tsFilePath}");
+            }
+            // Save function files to functions folder
+            else if (currentFile.Type == "function")
+            {
+                string functionsFolder = Path.Combine(functionsPath, Path.GetFileNameWithoutExtension(currentFile.Name));
+                Directory.CreateDirectory(functionsFolder);
+                string fnFilePath = Path.Combine(functionsFolder, currentFile.Name);
+                await File.WriteAllTextAsync(fnFilePath, fileContent);
+                consoleOutput.Add($"> Saved function file: {fnFilePath}");
+            }
+        }
+
+        // Save all project files to the project directory via ProjectService
+        var subdomain = GetSubdomain();
+        foreach (var file in projectFiles)
+        {
+            await ProjectService.SaveProjectFile(subdomain, file.Name, file.Content);
+        }
+
+        // Save project metadata
+        var projectInfo = new ProjectInfo
+        {
+            Name = projectName,
+            Subdomain = subdomain,
+            LastSaved = DateTime.Now
+        };
+        await ProjectService.SaveProject(subdomain, projectInfo, new List<ProjectComponent>());
+        
+        // Create backup
+        await CreateBackup(subdomain);
+        
+        // Update analytics
+        analyticsData.Edits++;
+        analyticsData.RecentActivity.Insert(0, new Activity { Timestamp = DateTime.Now, Description = $"Edited {selectedFile}" });
+        if (analyticsData.RecentActivity.Count > 50) 
+            analyticsData.RecentActivity = analyticsData.RecentActivity.Take(50).ToList();
+        
+        // Update top files stats
+        var fileStats = analyticsData.TopFiles.FirstOrDefault(f => f.Name == selectedFile);
+        if (fileStats != null)
+        {
+            fileStats.Edits++;
+        }
+        else
+        {
+            analyticsData.TopFiles.Add(new FileStats { Name = selectedFile, Edits = 1 });
+            analyticsData.TopFiles = analyticsData.TopFiles.OrderByDescending(f => f.Edits).Take(10).ToList();
+        }
+        
+        await SaveAnalytics();
+        
+        statusMessage = "Project saved successfully!";
+        consoleOutput.Add($"> Project saved to: D:\\PackArcade\\wwwroot\\projects\\{subdomain}");
+        
+        if (currentFile?.Type == "apprunner")
+        {
+            consoleOutput.Add($"> AppRunner file saved to: {appRunnersPath}\\{currentFile.Name}\\{currentFile.Name}.ts");
+        }
+        else if (currentFile?.Type == "function")
+        {
+            consoleOutput.Add($"> Function file saved to: {functionsPath}\\{Path.GetFileNameWithoutExtension(currentFile.Name)}\\{currentFile.Name}");
         }
     }
+    catch (Exception ex)
+    {
+        statusMessage = $"Error saving: {ex.Message}";
+        consoleOutput.Add($"❌ Error saving: {ex.Message}");
+        await SaveErrorLog(new ErrorLog { Level = "Error", Message = ex.Message, StackTrace = ex.StackTrace, Timestamp = DateTime.Now });
+    }
+}
 
     private async Task PublishProject()
     {
@@ -2864,102 +3479,149 @@ return result;",
         StateHasChanged();
     }
     
-    private async Task StartAppRunner(string projectDir)
+ private async Task StartAppRunner(string projectDir)
+{
+    try
     {
-        try
+        consoleOutput.Add($"> Starting AppRunner...");
+        isBackendRunning = true;
+        currentBackendPort = 3008;
+
+        var appRunners = projectFiles.Where(f => f.Type == "apprunner").ToList();
+
+        if (!appRunners.Any())
         {
-            consoleOutput.Add($"> Starting AppRunner...");
-            isBackendRunning = true;
-            currentBackendPort = 3008;
-            
-            var appRunners = projectFiles.Where(f => f.Type == "apprunner").ToList();
-            
-            if (!appRunners.Any())
+            consoleOutput.Add($"> No AppRunner files found.");
+            isBackendRunning = false;
+            return;
+        }
+
+        string tempRunnerDir = Path.Combine(Path.GetTempPath(), "PackArcade2", "AppRunners", Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempRunnerDir);
+
+        currentTempDir = tempRunnerDir;
+
+        consoleOutput.Add($"> Temp dir: {tempRunnerDir}");
+
+        foreach (var app in appRunners)
+        {
+            string appFolder = Path.Combine(tempRunnerDir, app.Name);
+            Directory.CreateDirectory(appFolder);
+
+            string entryFile = $"{app.Name}.ts";
+            string entryPath = Path.Combine(appFolder, entryFile);
+
+            await File.WriteAllTextAsync(entryPath, app.Content);
+
+            // Copy all supporting files
+            foreach (var file in projectFiles)
             {
-                consoleOutput.Add($"> No AppRunner files found. Create an extensionless file to run a long-term app.");
-                isBackendRunning = false;
-                return;
+                if (file.Type == "apprunner") continue;
+                await File.WriteAllTextAsync(Path.Combine(appFolder, file.Name), file.Content);
             }
 
-            foreach (var app in appRunners)
+            // package.json (important for Docker execution)
+            var packageJson = new
             {
-                string appFolder = Path.Combine(appRunnersPath, app.Name);
-                Directory.CreateDirectory(appFolder);
-                
-                var startInfo = new ProcessStartInfo
+                name = app.Name,
+                version = "1.0.0",
+                scripts = new
                 {
-                    FileName = "node",
-                    Arguments = $"{app.Name}.ts",
-                    WorkingDirectory = appFolder,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                
-                backendProcess = await StartSandboxedProcess(startInfo, isFunction: false);
-                
-                backendProcess.OutputDataReceived += (s, e) =>
+                    start = $"node {entryFile}"
+                },
+                dependencies = new
                 {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        InvokeAsync(() =>
-                        {
-                            consoleOutput.Add($"> [{app.Name}] {e.Data}");
-                            StateHasChanged();
-                        });
-                    }
-                };
-                
-                backendProcess.ErrorDataReceived += (s, e) =>
+                    express = "^4.18.2",
+                    cors = "^2.8.5"
+                },
+                devDependencies = new
                 {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        InvokeAsync(() =>
-                        {
-                            consoleOutput.Add($"> [{app.Name}] ERROR: {e.Data}");
-                            StateHasChanged();
-                        });
-                    }
-                };
-                
-                backendProcess.BeginOutputReadLine();
-                backendProcess.BeginErrorReadLine();
-                
-                consoleOutput.Add($"> AppRunner '{app.Name}' started (PID: {backendProcess.Id}) with Windows Job Object sandboxing");
-            }
-            
-            if (enableReverseProxy)
-            {
-                try
-                {
-                    BackendTracker.RegisterBackend(GetSubdomain(), currentBackendPort, "apprunner");
-                    consoleOutput.Add($"> Registered with reverse proxy on port {currentBackendPort}");
+                    typescript = "^5.0.0",
+                    ts_node = "^10.9.0"
                 }
-                catch (Exception ex)
-                {
-                    consoleOutput.Add($"> Warning: Failed to register with reverse proxy: {ex.Message}");
-                }
-            }
-            else
-            {
-                consoleOutput.Add($"> Reverse proxy disabled - app will not be publicly accessible");
-            }
-            
-            consoleOutput.Add($"> AppRunner started successfully");
-            
-            if (backendProcess != null)
-            {
-                await ScheduleAutoTermination(backendProcess.Id, currentBackendPort, backendProcess, currentJob.Value, sandboxTimeoutMinutes * 60, "backend");
-            }
+            };
+
+            await File.WriteAllTextAsync(
+                Path.Combine(appFolder, "package.json"),
+                JsonSerializer.Serialize(packageJson, new JsonSerializerOptions { WriteIndented = true })
+            );
+
+            consoleOutput.Add($"> Starting AppRunner inside Docker...");
+
+            backendProcess = await RunAppRunnerDocker(appFolder, entryFile);
+
+            consoleOutput.Add($"> AppRunner '{app.Name}' started (PID: {backendProcess.Id})");
         }
-        catch (Exception ex)
-        {
-            consoleOutput.Add($"> Error starting AppRunner: {ex.Message}");
-            isBackendRunning = false;
-        }
+
+        consoleOutput.Add($"> AppRunner system fully started");
     }
-    
+    catch (Exception ex)
+    {
+        consoleOutput.Add($"> Error: {ex.Message}");
+        isBackendRunning = false;
+    }
+}
+    private async Task<Process> RunAppRunnerDocker(string appFolder, string entryFile)
+{
+    var dockerPath = @"C:\Program Files\Docker\Docker\resources\bin\docker.exe";
+
+    string dockerArgs =
+        $"run --rm " +
+
+        // 🔒 Security
+        $"--cap-drop=ALL " +
+        $"--security-opt no-new-privileges " +
+        $"--pids-limit 100 " +
+        $"--memory=256m " +
+        $"--cpus=1.0 " +
+
+        // filesystem isolation
+        $"--tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m " +
+        $"--tmpfs /home/node:rw,size=128m " +
+
+        // env
+        $"--env HOME=/home/node " +
+        $"--env npm_config_cache=/home/node/.npm " +
+        $"--env NODE_ENV=production " +
+        $"--env PORT={currentBackendPort} " +
+
+        // user (you can switch to root if npm breaks)
+        $"--user root " +
+
+        // network (NOT disabled, but isolated if you later use a custom network)
+        $"--network bridge " +
+
+        // port mapping
+        $"-p 127.0.0.1:{currentBackendPort}:{currentBackendPort} " +
+
+        // volumes
+        $"-v \"{appFolder}:/app:rw\" " +
+        $"-v npm-cache:/home/node/.npm " +
+
+        $"-w /app " +
+
+        // 🔥 Node 24 Alpine
+        $"node:24-alpine sh -c \"npm install --omit=optional && node --require ts-node/register {entryFile}\"";
+
+    var process = new Process
+    {
+        StartInfo = new ProcessStartInfo
+        {
+            FileName = dockerPath,
+            Arguments = dockerArgs,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        }
+    };
+
+    process.Start();
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    return process;
+}
     private async Task StartFunction(string projectDir)
     {
         try
@@ -3038,270 +3700,336 @@ return result;",
             isBackendRunning = false;
         }
     }
-    
-    private async Task StartNodeBackend(string projectDir)
+    private int GetAvailablePort()
+{
+    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+    listener.Start();
+
+    int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+
+    listener.Stop();
+
+    return port;
+}
+private async Task StartNodeBackend(string projectDir)
+{
+    try
     {
-        try
+        consoleOutput.Add($"> Starting Node.js server...");
+        isBackendRunning = true;
+
+        var port = GetAvailablePort();
+        currentBackendPort = port;
+
+        consoleOutput.Add($"> Assigned port: {port}");
+
+        var checkProcess = new Process
         {
-            consoleOutput.Add($"> Starting Node.js server...");
-            isBackendRunning = true;
-            currentBackendPort = 3009;
-            
-            var checkProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "node",
-                    Arguments = "--version",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }
-            };
-            
-            checkProcess.Start();
-            string nodeVersion = await checkProcess.StandardOutput.ReadToEndAsync();
-            await checkProcess.WaitForExitAsync();
-            
-            if (checkProcess.ExitCode != 0)
-            {
-                consoleOutput.Add($"> Node.js not found. Please install Node.js.");
-                isBackendRunning = false;
-                return;
-            }
-            
-            consoleOutput.Add($"> Node {nodeVersion.Trim()}");
-            
-            string packagePath = Path.Combine(projectDir, "package.json");
-            if (!File.Exists(packagePath))
-            {
-                consoleOutput.Add($"> Creating package.json...");
-                var packageJson = new
-                {
-                    name = Path.GetFileName(projectDir),
-                    version = "1.0.0",
-                    scripts = new
-                    {
-                        start = "node server.js"
-                    },
-                    dependencies = new
-                    {
-                        express = "^4.18.2",
-                        cors = "^2.8.5"
-                    }
-                };
-                
-                string json = JsonSerializer.Serialize(packageJson, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(packagePath, json);
-            }
-            
-            consoleOutput.Add($"> Installing express and cors...");
-            var npmProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "npm.cmd",
-                    Arguments = "install",
-                    WorkingDirectory = projectDir,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }
-            };
-            
-            npmProcess.Start();
-            string npmOutput = await npmProcess.StandardOutput.ReadToEndAsync();
-            string npmError = await npmProcess.StandardError.ReadToEndAsync();
-            await npmProcess.WaitForExitAsync();
-            
-            if (!string.IsNullOrEmpty(npmOutput)) consoleOutput.Add($"> {npmOutput.Trim()}");
-            if (!string.IsNullOrEmpty(npmError)) consoleOutput.Add($"> {npmError.Trim()}");
-            
-            string mainFile = "server.js";
-            if (File.Exists(Path.Combine(projectDir, "app.js"))) mainFile = "app.js";
-            if (File.Exists(Path.Combine(projectDir, "index.js"))) mainFile = "index.js";
-            
-            var startInfo = new ProcessStartInfo
+            StartInfo = new ProcessStartInfo
             {
                 FileName = "node",
-                Arguments = mainFile,
-                WorkingDirectory = projectDir,
+                Arguments = "--version",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
-            };
-            
-            backendProcess = await StartSandboxedProcess(startInfo, isFunction: false);
-            
-            backendProcess.OutputDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                {
-                    InvokeAsync(() =>
-                    {
-                        consoleOutput.Add($"> {e.Data}");
-                        StateHasChanged();
-                    });
-                }
-            };
-            
-            backendProcess.ErrorDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                {
-                    InvokeAsync(() =>
-                    {
-                        consoleOutput.Add($"> ERROR: {e.Data}");
-                        StateHasChanged();
-                    });
-                }
-            };
-            
-            backendProcess.BeginOutputReadLine();
-            backendProcess.BeginErrorReadLine();
-            
-            if (enableReverseProxy)
-            {
-                try
-                {
-                    BackendTracker.RegisterBackend(GetSubdomain(), currentBackendPort, "node");
-                    consoleOutput.Add($"> Registered with reverse proxy on port {currentBackendPort}");
-                }
-                catch (Exception ex)
-                {
-                    consoleOutput.Add($"> Warning: Failed to register with reverse proxy: {ex.Message}");
-                }
             }
-            else
-            {
-                consoleOutput.Add($"> Reverse proxy disabled - app will not be publicly accessible");
-            }
-            
-            consoleOutput.Add($"> Node.js server started on PID: {backendProcess.Id} with Windows Job Object sandboxing");
-            consoleOutput.Add($"> API available at: https://{GetSubdomain()}.packarcade.win/api/hello");
-            consoleOutput.Add($"> (via reverse proxy)");
-            
-            await ScheduleAutoTermination(backendProcess.Id, currentBackendPort, backendProcess, currentJob.Value, sandboxTimeoutMinutes * 60, "backend");
-        }
-        catch (Exception ex)
+        };
+
+        checkProcess.Start();
+
+        string nodeVersion = await checkProcess.StandardOutput.ReadToEndAsync();
+        string nodeError = await checkProcess.StandardError.ReadToEndAsync();
+
+        await checkProcess.WaitForExitAsync();
+
+        if (checkProcess.ExitCode != 0)
         {
-            consoleOutput.Add($"> Error starting Node.js: {ex.Message}");
+            consoleOutput.Add($"> Node.js not found.");
+            consoleOutput.Add($"> {nodeError}");
             isBackendRunning = false;
+            return;
         }
+
+        consoleOutput.Add($"> Node {nodeVersion.Trim()}");
+
+        string packagePath = Path.Combine(projectDir, "package.json");
+
+        if (!File.Exists(packagePath))
+        {
+            var packageJson = new
+            {
+                name = Path.GetFileName(projectDir),
+                version = "1.0.0",
+                scripts = new { start = "node server.js" },
+                dependencies = new
+                {
+                    express = "^4.18.2",
+                    cors = "^2.8.5"
+                }
+            };
+
+            await File.WriteAllTextAsync(
+                packagePath,
+                JsonSerializer.Serialize(packageJson, new JsonSerializerOptions { WriteIndented = true })
+            );
+        }
+
+        consoleOutput.Add($"> Installing dependencies...");
+
+        var installProcess = await RunDocker(
+            projectDir,
+            "npm install",
+            port: null,
+            isInstall: true
+        );
+
+        await installProcess.WaitForExitAsync();
+
+        if (installProcess.ExitCode != 0)
+        {
+            consoleOutput.Add($"> ERROR: npm install failed.");
+            isBackendRunning = false;
+            return;
+        }
+
+        string mainFile = "server.js";
+        if (File.Exists(Path.Combine(projectDir, "app.js"))) mainFile = "app.js";
+        if (File.Exists(Path.Combine(projectDir, "index.js"))) mainFile = "index.js";
+
+        backendProcess = await RunDocker(
+            projectDir,
+            $"node {mainFile}",
+            port,
+            isInstall: false
+        );
+
+        if (backendProcess == null || backendProcess.HasExited)
+        {
+            consoleOutput.Add($"> ERROR: Container failed to start.");
+            isBackendRunning = false;
+            return;
+        }
+
+        consoleOutput.Add($"> Node server started on PID: {backendProcess.Id}");
+        consoleOutput.Add($"> API: https://{GetSubdomain()}.packarcade.win/api/hello");
+
+        if (enableReverseProxy)
+        {
+            try
+            {
+                BackendTracker?.RegisterBackend(GetSubdomain(), port, "node");
+            }
+            catch (Exception ex)
+            {
+                consoleOutput.Add($"> Reverse proxy error: {ex.Message}");
+            }
+        }
+
+        await ScheduleAutoTermination(
+            backendProcess.Id,
+            port,
+            backendProcess,
+            (currentJob ?? IntPtr.Zero),
+            sandboxTimeoutMinutes * 60,
+            "backend"
+        );
     }
-    
-    private async Task StartPythonBackend(string projectDir)
+    catch (Exception ex)
     {
-        try
-        {
-            consoleOutput.Add($"> Starting Python Flask server...");
-            isBackendRunning = true;
-            currentBackendPort = 5000;
-            
-            var checkProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "python",
-                    Arguments = "--version",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }
-            };
-            
-            checkProcess.Start();
-            string pythonVersion = await checkProcess.StandardOutput.ReadToEndAsync();
-            await checkProcess.WaitForExitAsync();
-            
-            if (checkProcess.ExitCode != 0)
-            {
-                consoleOutput.Add($"> Python not found. Please install Python.");
-                isBackendRunning = false;
-                return;
-            }
-            
-            consoleOutput.Add($"> {pythonVersion.Trim()}");
-            
-            consoleOutput.Add($"> Checking for Flask...");
-            var pipProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "pip",
-                    Arguments = "install flask flask-cors",
-                    WorkingDirectory = projectDir,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }
-            };
-            
-            pipProcess.Start();
-            string pipOutput = await pipProcess.StandardOutput.ReadToEndAsync();
-            string pipError = await pipProcess.StandardError.ReadToEndAsync();
-            await pipProcess.WaitForExitAsync();
-            
-            if (!string.IsNullOrEmpty(pipOutput)) consoleOutput.Add($"> {pipOutput.Trim()}");
-            if (!string.IsNullOrEmpty(pipError)) consoleOutput.Add($"> {pipError.Trim()}");
-            
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "python",
-                Arguments = "server.py",
-                WorkingDirectory = projectDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-            
-            backendProcess = await StartSandboxedProcess(startInfo, isFunction: false);
-            
-            backendProcess.OutputDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                {
-                    InvokeAsync(() =>
-                    {
-                        consoleOutput.Add($"> {e.Data}");
-                        StateHasChanged();
-                    });
-                }
-            };
-            
-            backendProcess.ErrorDataReceived += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(e.Data))
-                {
-                    InvokeAsync(() =>
-                    {
-                        consoleOutput.Add($"> ERROR: {e.Data}");
-                        StateHasChanged();
-                    });
-                }
-            };
-            
-            backendProcess.BeginOutputReadLine();
-            backendProcess.BeginErrorReadLine();
-            
-            consoleOutput.Add($"> Python server started on PID: {backendProcess.Id} with Windows Job Object sandboxing");
-            consoleOutput.Add($"> API available at: https://{GetSubdomain()}.packarcade.win/api/hello");
-            consoleOutput.Add($"> (via reverse proxy)");
-            
-            await ScheduleAutoTermination(backendProcess.Id, currentBackendPort, backendProcess, currentJob.Value, sandboxTimeoutMinutes * 60, "backend");
-        }
-        catch (Exception ex)
-        {
-            consoleOutput.Add($"> Error starting Python: {ex.Message}");
-            isBackendRunning = false;
-        }
+        consoleOutput.Add($"> Error: {ex.Message}");
+        isBackendRunning = false;
     }
+}
+
+private async Task<Process> RunDocker(
+    string projectDir,
+    string command,
+    int? port,
+    bool isInstall)
+{
+    var dockerPath = @"C:\Program Files\Docker\Docker\resources\bin\docker.exe";
+
+    string dockerArgs =
+        $"run --rm " +
+        $"--cap-drop=ALL " +
+        $"--security-opt no-new-privileges " +
+        $"--pids-limit 100 " +
+        $"--memory=256m " +
+        $"--cpus=1.0 " +
+        $"--tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m " +
+        $"--tmpfs /home/node:rw,size=128m " +
+       
+
+        // 🔒 Security improvements
+        $"--env HOME=/home/node " +
+        $"--env npm_config_cache=/home/node/.npm " +
+        $"--env npm_config_optional=false " +
+        $"--env npm_config_fund=false " +
+        $"--env NODE_ENV=production " +
+
+        // 🔥 Pass port to container
+        $"{(port.HasValue ? $"--env PORT={port.Value} " : "")}" +
+
+        // 🔥 IMPORTANT: use non-root user
+       "--user root " +
+
+        // Optional network isolation (keep if your app doesn’t need internet)
+        // $"--network none " +
+
+        // Port mapping
+        $"{(port.HasValue ? $"-p 127.0.0.1:{port}:{port} " : "")}" +
+
+        $"-v \"{projectDir}:/app:rw\" " +
+        $"-v npm-cache:/home/node/.npm " +
+        $"-w /app " +
+        $"node:18-alpine sh -c \"{command}\"";
+
+    var process = new Process
+    {
+        StartInfo = new ProcessStartInfo
+        {
+            FileName = dockerPath,
+            Arguments = dockerArgs,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        },
+        EnableRaisingEvents = true
+    };
+
+    process.OutputDataReceived += (s, e) =>
+    {
+        if (!string.IsNullOrEmpty(e.Data))
+        {
+            InvokeAsync(() =>
+            {
+                consoleOutput.Add($"> {e.Data}");
+                StateHasChanged();
+            });
+        }
+    };
+
+    process.ErrorDataReceived += (s, e) =>
+    {
+        if (!string.IsNullOrEmpty(e.Data))
+        {
+            InvokeAsync(() =>
+            {
+                consoleOutput.Add($"> ERROR: {e.Data}");
+                StateHasChanged();
+            });
+        }
+    };
+
+    process.Start();
+
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    return process;
+}
+private async Task StartPythonBackend(string projectDir)
+{
+    try
+    {
+        consoleOutput.Add($"> Starting Python Flask server...");
+        isBackendRunning = true;
+
+        var port = GetAvailablePort(); // dynamic (prevents conflicts)
+        currentBackendPort = port;
+
+        string pythonFile = "app.py";
+        if (File.Exists(Path.Combine(projectDir, "server.py"))) pythonFile = "server.py";
+        if (File.Exists(Path.Combine(projectDir, "main.py"))) pythonFile = "main.py";
+
+        consoleOutput.Add($"> Using Python file: {pythonFile}");
+        consoleOutput.Add($"> Assigned port: {port}");
+
+        var process = await RunSecureDockerPython(projectDir, pythonFile, port);
+
+        backendProcess = process;
+
+        if (backendProcess == null || backendProcess.HasExited)
+        {
+            consoleOutput.Add($"> ERROR: Docker failed to start Python server.");
+            isBackendRunning = false;
+            return;
+        }
+
+        if (enableReverseProxy)
+        {
+            try
+            {
+                BackendTracker?.RegisterBackend(GetSubdomain(), currentBackendPort, "python");
+                consoleOutput.Add($"> Registered with reverse proxy on port {currentBackendPort}");
+                consoleOutput.Add($"> Your app: https://{GetSubdomain()}.packarcade.win");
+            }
+            catch (Exception ex)
+            {
+                consoleOutput.Add($"> Warning: Reverse proxy failed: {ex.Message}");
+            }
+        }
+
+        consoleOutput.Add($"> Python server started on PID: {backendProcess.Id}");
+
+        await ScheduleAutoTermination(
+            backendProcess.Id,
+            currentBackendPort,
+            backendProcess,
+            (currentJob ?? IntPtr.Zero),
+            sandboxTimeoutMinutes * 60,
+            "backend"
+        );
+    }
+    catch (Exception ex)
+    {
+        consoleOutput.Add($"> Error starting Python: {ex.Message}");
+        isBackendRunning = false;
+    }
+}
+private async Task<Process> RunSecureDockerPython(string projectDir, string file, int port)
+{
+    var dockerPath = @"C:\Program Files\Docker\Docker\resources\bin\docker.exe";
+
+    string dockerArgs =
+        $"run --rm " +
+        $"--read-only " +
+        $"--cap-drop=ALL " +
+        $"--security-opt no-new-privileges " +
+        $"--pids-limit 100 " +
+        $"--memory=256m " +
+        $"--cpus=1.0 " +
+        $"--tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m " +
+        $"--user 1000:1000 " +
+        $"-p 127.0.0.1:{port}:{port} " +
+        $"-v \"{projectDir}:/app:ro\" " +
+        $"-w /app " +
+        $"python:3.11-alpine " +
+        $"sh -c \"pip install flask flask-cors && python {file}\"";
+
+    var process = new Process
+    {
+        StartInfo = new ProcessStartInfo
+        {
+            FileName = dockerPath,
+            Arguments = dockerArgs,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        },
+        EnableRaisingEvents = true
+    };
+
+    process.Start();
+
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    return process;
+}
     
     private async Task StartCSharpBackend(string projectDir)
     {
@@ -3388,7 +4116,7 @@ app.Run();";
             {
                 try
                 {
-                    BackendTracker.RegisterBackend(GetSubdomain(), currentBackendPort, "csharp");
+                    this.BackendTracker?.RegisterBackend(GetSubdomain(), currentBackendPort, "csharp");
                     consoleOutput.Add($"> Registered with reverse proxy on port {currentBackendPort}");
                 }
                 catch (Exception ex)
@@ -3405,7 +4133,7 @@ app.Run();";
             consoleOutput.Add($"> API available at: https://{GetSubdomain()}.packarcade.win/api/hello");
             consoleOutput.Add($"> (via reverse proxy)");
             
-            await ScheduleAutoTermination(backendProcess.Id, currentBackendPort, backendProcess, currentJob.Value, sandboxTimeoutMinutes * 60, "backend");
+            await ScheduleAutoTermination(backendProcess.Id, currentBackendPort, backendProcess, (currentJob ?? IntPtr.Zero), sandboxTimeoutMinutes * 60, "backend");
         }
         catch (Exception ex)
         {
@@ -3692,7 +4420,7 @@ app.Run();";
             {
                 try
                 {
-                    BackendTracker.RegisterBackend(GetSubdomain(), longTermAppPort, "node-longterm");
+                    this.BackendTracker?.RegisterBackend(GetSubdomain(), longTermAppPort, "node-longterm");
                     consoleOutput.Add($"> Registered with reverse proxy on port {longTermAppPort}");
                 }
                 catch (Exception ex)
@@ -3709,7 +4437,7 @@ app.Run();";
             consoleOutput.Add($"> API available at: https://{GetSubdomain()}.packarcade.win/api/hello (port {longTermAppPort})");
             consoleOutput.Add($"> Auto-termination in 20 minutes.");
             
-            await ScheduleAutoTermination(longTermAppProcess.Id, longTermAppPort, longTermAppProcess, longTermAppJob.Value, LONG_TERM_APP_TIMEOUT_SECONDS, "longterm");
+            await ScheduleAutoTermination(longTermAppProcess.Id, longTermAppPort, longTermAppProcess, (longTermAppJob ?? IntPtr.Zero), LONG_TERM_APP_TIMEOUT_SECONDS, "longterm");
         }
         catch (Exception ex)
         {
@@ -3880,7 +4608,7 @@ app.Run();";
             {
                 try
                 {
-                    BackendTracker.RegisterBackend(GetSubdomain(), longTermAppPort, "csharp-longterm");
+                    this.BackendTracker?.RegisterBackend(GetSubdomain(), longTermAppPort, "csharp-longterm");
                     consoleOutput.Add($"> Registered with reverse proxy on port {longTermAppPort}");
                 }
                 catch (Exception ex)
@@ -3897,7 +4625,7 @@ app.Run();";
             consoleOutput.Add($"> API available at: https://{GetSubdomain()}.packarcade.win/api/hello");
             consoleOutput.Add($"> Auto-termination in 20 minutes.");
             
-            await ScheduleAutoTermination(longTermAppProcess.Id, longTermAppPort, longTermAppProcess, longTermAppJob.Value, LONG_TERM_APP_TIMEOUT_SECONDS, "longterm");
+            await ScheduleAutoTermination(longTermAppProcess.Id, longTermAppPort, longTermAppProcess, (longTermAppJob ?? IntPtr.Zero), LONG_TERM_APP_TIMEOUT_SECONDS, "longterm");
         }
         catch (Exception ex)
         {
@@ -4035,7 +4763,7 @@ app.Run();";
             {
                 try
                 {
-                    BackendTracker.RegisterBackend(GetSubdomain(), longTermAppPort, "apprunner-longterm");
+                    this.BackendTracker?.RegisterBackend(GetSubdomain(), longTermAppPort, "apprunner-longterm");
                     consoleOutput.Add($"> Registered with reverse proxy on port {longTermAppPort}");
                 }
                 catch (Exception ex)
@@ -4428,7 +5156,7 @@ echo json_encode(['message' => 'Hello from PHP!']);
         consoleOutput.Add($"> Process running in: {devTempDir}");
         consoleOutput.Add($"> Auto-termination in {sandboxTimeoutMinutes} minutes");
         
-        await ScheduleAutoTermination(localDevProcess.Id, 0, localDevProcess, localDevJob.Value, sandboxTimeoutMinutes * 60, "localdev");
+        await ScheduleAutoTermination(localDevProcess.Id, 0, localDevProcess, (localDevJob ?? IntPtr.Zero), sandboxTimeoutMinutes * 60, "localdev");
     }
     
     private async void StopLocalDevMode()
@@ -4615,69 +5343,75 @@ echo json_encode(['message' => 'Hello from PHP!']);
         StateHasChanged();
     }
 
-    public void Dispose()
+   public void Dispose()
+{
+    dotNetRef?.Dispose();
+    
+    // Clean up file watcher
+    _fileWatcher?.Dispose();
+    _debounceTimer?.Dispose();
+    
+    terminationCts?.Cancel();
+    terminationCts?.Dispose();
+    longTermAppTerminationCts?.Cancel();
+    longTermAppTerminationCts?.Dispose();
+    localDevTerminationCts?.Cancel();
+    localDevTerminationCts?.Dispose();
+    
+    if (backendProcess != null && !backendProcess.HasExited)
     {
-        dotNetRef?.Dispose();
-        
-        terminationCts?.Cancel();
-        terminationCts?.Dispose();
-        longTermAppTerminationCts?.Cancel();
-        longTermAppTerminationCts?.Dispose();
-        localDevTerminationCts?.Cancel();
-        localDevTerminationCts?.Dispose();
-        
-        if (backendProcess != null && !backendProcess.HasExited)
+        try
         {
-            try
-            {
-                if (currentJob.HasValue && currentJob.Value != IntPtr.Zero)
-                    TerminateJobObject(currentJob.Value, 1);
-                backendProcess.Kill();
-                backendProcess.Dispose();
-            }
-            catch { }
+            if (currentJob.HasValue && currentJob.Value != IntPtr.Zero)
+                TerminateJobObject(currentJob.Value, 1);
+            backendProcess.Kill();
+            backendProcess.Dispose();
         }
-        
-        if (longTermAppProcess != null && !longTermAppProcess.HasExited)
-        {
-            try
-            {
-                if (longTermAppJob.HasValue && longTermAppJob.Value != IntPtr.Zero)
-                    TerminateJobObject(longTermAppJob.Value, 1);
-                longTermAppProcess.Kill();
-                longTermAppProcess.Dispose();
-            }
-            catch { }
-        }
-        
-        if (localDevProcess != null && !localDevProcess.HasExited)
-        {
-            try
-            {
-                if (localDevJob.HasValue && localDevJob.Value != IntPtr.Zero)
-                    TerminateJobObject(localDevJob.Value, 1);
-                localDevProcess.Kill();
-                localDevProcess.Dispose();
-            }
-            catch { }
-        }
-        
-        if (!string.IsNullOrEmpty(currentTempDir) && Directory.Exists(currentTempDir))
-            try { Directory.Delete(currentTempDir, true); } catch { }
-        
-        if (!string.IsNullOrEmpty(longTermAppTempDir) && Directory.Exists(longTermAppTempDir))
-            try { Directory.Delete(longTermAppTempDir, true); } catch { }
-        
-        if (!string.IsNullOrEmpty(localDevTempDir) && Directory.Exists(localDevTempDir))
-            try { Directory.Delete(localDevTempDir, true); } catch { }
+        catch { }
     }
+    
+    if (longTermAppProcess != null && !longTermAppProcess.HasExited)
+    {
+        try
+        {
+            if (longTermAppJob.HasValue && longTermAppJob.Value != IntPtr.Zero)
+                TerminateJobObject(longTermAppJob.Value, 1);
+            longTermAppProcess.Kill();
+            longTermAppProcess.Dispose();
+        }
+        catch { }
+    }
+    
+    if (localDevProcess != null && !localDevProcess.HasExited)
+    {
+        try
+        {
+            if (localDevJob.HasValue && localDevJob.Value != IntPtr.Zero)
+                TerminateJobObject(localDevJob.Value, 1);
+            localDevProcess.Kill();
+            localDevProcess.Dispose();
+        }
+        catch { }
+    }
+    
+    if (!string.IsNullOrEmpty(currentTempDir) && Directory.Exists(currentTempDir))
+        try { Directory.Delete(currentTempDir, true); } catch { }
+    
+    if (!string.IsNullOrEmpty(longTermAppTempDir) && Directory.Exists(longTermAppTempDir))
+        try { Directory.Delete(longTermAppTempDir, true); } catch { }
+    
+    if (!string.IsNullOrEmpty(localDevTempDir) && Directory.Exists(localDevTempDir))
+        try { Directory.Delete(localDevTempDir, true); } catch { }
+}
 
     private class ProjectFile
-    {
-        public string Name { get; set; } = "";
-        public string Type { get; set; } = "";
-        public string Content { get; set; } = "";
-    }
+{
+    public string Name { get; set; } = ""; // Full path with folder structure
+    public string DisplayName { get; set; } = ""; // Just the filename part
+    public string FolderPath { get; set; } = ""; // Folder path (empty for root)
+    public string Type { get; set; } = "";
+    public string Content { get; set; } = "";
+}
     
     // New data classes
     private class Collaborator
