@@ -1,0 +1,121 @@
+name: JOVA Compiler Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            jova/compiler/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('jova/compiler/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --force
+        shell: pwsh
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --force
+        shell: pwsh
+
+      - name: Build JOVA Compiler (WASM)
+        run: |
+          cd jova/compiler
+          cargo build --release --target wasm32-unknown-unknown
+        shell: pwsh
+
+      - name: Generate WASM bindings
+        run: |
+          cd jova/compiler
+          wasm-bindgen target/wasm32-unknown-unknown/release/jova_compiler.wasm --out-dir ./pkg --target web
+        shell: pwsh
+
+      - name: Create output directory
+        run: |
+          Remove-Item -Path out -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path out
+          New-Item -ItemType Directory -Force -Path out/compiler
+          New-Item -ItemType Directory -Force -Path out/frontend
+          New-Item -ItemType Directory -Force -Path out/src
+        shell: pwsh
+
+      - name: Copy WASM artifacts
+        run: |
+          Copy-Item -Path "jova/compiler/pkg/*" -Destination "out/compiler/" -Recurse -Force
+        shell: pwsh
+
+      - name: Copy source .rs files
+        run: |
+          Copy-Item -Path "jova/compiler/src/*.rs" -Destination "out/src/" -Force
+        shell: pwsh
+
+      - name: Copy Cargo.toml
+        run: |
+          Copy-Item -Path "jova/compiler/Cargo.toml" -Destination "out/Cargo.toml" -Force
+        shell: pwsh
+
+      - name: Copy frontend files
+        run: |
+          if (Test-Path "jova/frontend") {
+            Copy-Item -Path "jova/frontend/*" -Destination "out/frontend/" -Recurse -Force
+          }
+          if (Test-Path "index.html") {
+            Copy-Item -Path "index.html" -Destination "out/" -Force
+          }
+        shell: pwsh
+
+      - name: Create test JOVA file
+        run: |
+          $content = "// Test JOVA program`nJOVA:Import Pop.`nPop:New module - testModel - model 99.`nJOVA:Export All Pops and Models.`nJOVA:New Language - TestLang.`nmyValue - 100"
+          Set-Content -Path "out/test.jova" -Value $content -Encoding utf8
+        shell: pwsh
+
+      - name: Create README
+        run: |
+          $readme = "# JOVA Compiler Output`n`n## Structure`n- compiler/ - WASM compiler artifacts`n- src/ - Original Rust source code (.rs files)`n- frontend/ - Web interface files`n- Cargo.toml - Rust package configuration`n- test.jova - Example JOVA program`n`n## Build Information`n- Run ID: ${{ github.run_id }}`n- Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n- Branch: ${{ github.ref_name }}"
+          Set-Content -Path "out/README.md" -Value $readme -Encoding utf8
+        shell: pwsh
+
+      - name: Commit and push out folder
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add out/
+          $changes = git diff --cached --name-only
+          if ($changes) {
+            git commit -m "Auto-build: Update out folder [skip ci]"
+            git push
+          } else {
+            Write-Host "No changes to commit"
+          }
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
