@@ -1,0 +1,20 @@
+D:\PackArcade\jova\compiler\target\release\deps\rustversion-917b7de9f5ab2a0b.d: D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\lib.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\attr.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\bound.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\constfn.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\date.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\error.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\expand.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\expr.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\iter.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\release.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\time.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\token.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\version.rs D:\PackArcade\jova\compiler\target\release\build\rustversion-2415409635fc8643\out\version.expr
+
+D:\PackArcade\jova\compiler\target\release\deps\rustversion-917b7de9f5ab2a0b.dll: D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\lib.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\attr.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\bound.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\constfn.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\date.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\error.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\expand.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\expr.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\iter.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\release.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\time.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\token.rs D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\version.rs D:\PackArcade\jova\compiler\target\release\build\rustversion-2415409635fc8643\out\version.expr
+
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\lib.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\attr.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\bound.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\constfn.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\date.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\error.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\expand.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\expr.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\iter.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\release.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\time.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\token.rs:
+D:\Rust\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\rustversion-1.0.22\src\version.rs:
+D:\PackArcade\jova\compiler\target\release\build\rustversion-2415409635fc8643\out\version.expr:
+
+# env-dep:OUT_DIR=D:\\PackArcade\\jova\\compiler\\target\\release\\build\\rustversion-2415409635fc8643\\out
