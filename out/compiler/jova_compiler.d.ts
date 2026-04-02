@@ -8,6 +8,7 @@ export class JovaCompiler {
     get_exports(): string;
     get_modules(): string;
     constructor();
+    set_base_path(path: string): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -19,6 +20,7 @@ export interface InitOutput {
     readonly jovacompiler_get_exports: (a: number) => [number, number];
     readonly jovacompiler_get_modules: (a: number) => [number, number];
     readonly jovacompiler_new: () => number;
+    readonly jovacompiler_set_base_path: (a: number, b: number, c: number) => void;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

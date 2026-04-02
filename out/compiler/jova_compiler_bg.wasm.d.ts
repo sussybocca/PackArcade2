@@ -6,6 +6,7 @@ export const jovacompiler_compile: (a: number, b: number, c: number) => [number,
 export const jovacompiler_get_exports: (a: number) => [number, number];
 export const jovacompiler_get_modules: (a: number) => [number, number];
 export const jovacompiler_new: () => number;
+export const jovacompiler_set_base_path: (a: number, b: number, c: number) => void;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

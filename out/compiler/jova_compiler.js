@@ -65,6 +65,14 @@ export class JovaCompiler {
         JovaCompilerFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
+    /**
+     * @param {string} path
+     */
+    set_base_path(path) {
+        const ptr0 = passStringToWasm0(path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.jovacompiler_set_base_path(this.__wbg_ptr, ptr0, len0);
+    }
 }
 if (Symbol.dispose) JovaCompiler.prototype[Symbol.dispose] = JovaCompiler.prototype.free;
 
