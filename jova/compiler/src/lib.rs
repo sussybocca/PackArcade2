@@ -141,7 +141,9 @@ impl JovaCompiler {
                         let name = name.trim().to_string();
                         let definition = def.trim().to_string();
                         self.custom_expressions.insert(name.clone(), definition.clone());
-                        output.push_str(&format!("  JOVA.customExpressions['{}'] = function('' , '') {{ return ({}); }};\n", name, definition));
+                        // Parse the definition to extract parameters and body
+                        let (params, body) = self.parse_expression_definition(&definition);
+                        output.push_str(&format!("  JOVA.customExpressions['{}'] = function({}) {{ return ({}); }};\n", name, params, body));
                         output.push_str(&format!("  window.{} = JOVA.customExpressions['{}'];\n", name, name));
                     } else {
                         errors.push(format!("Invalid custom expression: {}", cmd));
@@ -270,6 +272,55 @@ impl JovaCompiler {
             modules: self.modules.keys().cloned().collect(),
             errors,
         }
+    }
+    
+    fn parse_expression_definition(&self, def: &str) -> (String, String) {
+        // Parse format like ":a: :b: :a :+: b"
+        let parts: Vec<&str> = def.split_whitespace().collect();
+        let mut params = Vec::new();
+        let mut body_parts = Vec::new();
+        
+        for part in parts {
+            if part.starts_with(':') && part.ends_with(':') {
+                let param_name = &part[1..part.len()-1];
+                params.push(param_name.to_string());
+                body_parts.push(param_name.to_string());
+            } else if part == ":+:" {
+                body_parts.push("+".to_string());
+            } else if part == ":-:" {
+                body_parts.push("-".to_string());
+            } else if part == ":*:" {
+                body_parts.push("*".to_string());
+            } else if part == ":/:" {
+                body_parts.push("/".to_string());
+            } else if part == ":%:" {
+                body_parts.push("%".to_string());
+            } else if part == ":EQ:" {
+                body_parts.push("===".to_string());
+            } else if part == ":NE:" {
+                body_parts.push("!==".to_string());
+            } else if part == ":GT:" {
+                body_parts.push(">".to_string());
+            } else if part == ":LT:" {
+                body_parts.push("<".to_string());
+            } else if part == ":GE:" {
+                body_parts.push(">=".to_string());
+            } else if part == ":LE:" {
+                body_parts.push("<=".to_string());
+            } else if part == ":AND:" {
+                body_parts.push("&&".to_string());
+            } else if part == ":OR:" {
+                body_parts.push("||".to_string());
+            } else if part == ":NOT:" {
+                body_parts.push("!".to_string());
+            } else {
+                body_parts.push(part.to_string());
+            }
+        }
+        
+        let params_str = params.join(", ");
+        let body_str = body_parts.join(" ");
+        (params_str, body_str)
     }
     
     fn parse_json_value(&self, val: &str) -> serde_json::Value {
