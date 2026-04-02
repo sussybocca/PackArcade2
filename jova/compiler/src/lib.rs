@@ -1,4 +1,4 @@
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude:: *;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::fs;
@@ -63,7 +63,8 @@ impl JovaCompiler {
         output.push_str("    replace: function(s,find,repl) { return String(s).replace(new RegExp(find,'g'), repl); },\n");
         output.push_str("    trim: function(s) { return String(s).trim(); },\n");
         output.push_str("    split: function(s,delim) { return String(s).split(delim); },\n");
-        output.push_str("    at: function(s,index) { return String(s).charAt(index); }\n");
+        output.push_str("    at: function(s,index) { return String(s).charAt(index); },\n");
+        output.push_str("    abs: function(x) { return Math.abs(x); }\n");
         output.push_str("  };\n");
         output.push_str("  const jovaArray = {\n");
         output.push_str("    push: function(arr,item) { arr.push(item); return arr; },\n");
@@ -224,7 +225,6 @@ impl JovaCompiler {
                                     let path = upload_all_caps[2].to_string();
                                     let full_path = Path::new(&self.base_path).join(&path);
                                     let mut dir_contents = HashMap::new();
-                                    // FIX: handle read_dir result properly
                                     if let Ok(entries) = fs::read_dir(&full_path) {
                                         for entry in entries {
                                             if let Ok(entry) = entry {
@@ -496,6 +496,7 @@ impl JovaCompiler {
             (r"^trim\((.+)\)$", "jovaString.trim({})"),
             (r"^split\((.+),\s*(.+)\)$", "jovaString.split({}, {})"),
             (r"^at\((.+),\s*(\d+)\)$", "jovaString.at({}, {})"),
+            (r"^abs\((.+)\)$", "jovaString.abs({})"),
         ];
         for (pattern, template) in patterns {
             let re = Regex::new(pattern).unwrap();
