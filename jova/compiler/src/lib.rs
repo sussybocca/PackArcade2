@@ -224,8 +224,9 @@ impl JovaCompiler {
                                     let path = upload_all_caps[2].to_string();
                                     let full_path = Path::new(&self.base_path).join(&path);
                                     let mut dir_contents = HashMap::new();
-                                    if full_path.exists() && full_path.is_dir() {
-                                        for entry in fs::read_dir(&full_path).unwrap_or_default() {
+                                    // FIX: handle read_dir result properly
+                                    if let Ok(entries) = fs::read_dir(&full_path) {
+                                        for entry in entries {
                                             if let Ok(entry) = entry {
                                                 let file_name = entry.file_name().to_string_lossy().to_string();
                                                 if let Ok(content) = fs::read_to_string(entry.path()) {
@@ -257,8 +258,8 @@ impl JovaCompiler {
                                 .map(|e| {
                                     if e.starts_with('"') {
                                         serde_json::Value::String(e.trim_matches('"').to_string())
-                                    } else if e.parse::<i64>().is_ok() {
-                                        serde_json::Value::Number(e.parse().unwrap())
+                                    } else if let Ok(num) = e.parse::<i64>() {
+                                        serde_json::Value::Number(num.into())
                                     } else if e == "true" {
                                         serde_json::Value::Bool(true)
                                     } else if e == "false" {
