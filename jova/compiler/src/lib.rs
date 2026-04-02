@@ -149,50 +149,74 @@ impl JovaCompiler {
                         self.modules.insert(lang_name, serde_json::Value::String("language".to_string()));
                     }
                 }
-                else if cmd.starts_with("express") {
-                    let rest = &cmd["express".len()..].trim();
-                    if let Some((name, def)) = rest.split_once(' ') {
-                        let name = name.trim().to_string();
-                        let definition = def.trim().to_string();
-                        let (params, body) = self.parse_expression_definition(&definition);
-                        self.custom_expressions.insert(name.clone(), (params.clone(), body.clone()));
-                        output.push_str(&format!("  JOVA.customExpressions['{}'] = function({}) {{ return ({}); }};\n", name, params, body));
-                        output.push_str(&format!("  window.{} = JOVA.customExpressions['{}'];\n", name, name));
-                    } else {
-                        errors.push(format!("Invalid custom expression: {}", cmd));
-                    }
-                }
-                else if cmd.starts_with("L ") {
-                    let after_l = &cmd["L ".len()..].trim();
-                    let (count_expr, inline_close) = if after_l.ends_with(')') {
-                        (after_l[..after_l.len()-1].trim().to_string(), true)
-                    } else {
-                        (after_l.to_string(), false)
-                    };
-                    
-                    let mut body_lines = Vec::new();
-                    if !inline_close {
-                        i += 1;
-                        while i < lines.len() && lines[i].trim() != ")" {
-                            body_lines.push(lines[i].trim());
-                            i += 1;
-                        }
-                        if i >= lines.len() {
-                            errors.push("Unclosed loop: missing ')'".to_string());
-                            break;
-                        }
-                    }
-                    let js_count = self.transform_expression(&count_expr);
-                    let mut js_body = String::new();
-                    for bline in body_lines {
-                        js_body.push_str(&self.transform_line(bline));
-                        js_body.push('\n');
-                    }
-                    output.push_str(&format!("  for (let _i = 0; _i < ({}); _i++) {{\n{}}}\n", js_count, js_body));
-                    if inline_close { i += 1; } else { i += 1; }
-                    continue;
-                }
-            }
+              else if cmd.starts_with("express") {
+    let rest = &cmd["express".len()..].trim();
+
+    if let Some((name, def)) = rest.split_once(' ') {
+        let name = name.trim().to_string();
+        let definition = def.trim().to_string();
+
+        let (params, body) = self.parse_expression_definition(&definition);
+
+        self.custom_expressions
+            .insert(name.clone(), (params.clone(), body.clone()));
+
+        // ✅ FIX: params -> params.join(", ")
+        output.push_str(&format!(
+            "  JOVA.customExpressions['{}'] = function({}) {{ return ({}); }};\n",
+            name,
+            params.join(", "),
+            body
+        ));
+
+        output.push_str(&format!(
+            "  window.{} = JOVA.customExpressions['{}'];\n",
+            name, name
+        ));
+    } else {
+        errors.push(format!("Invalid custom expression: {}", cmd));
+    }
+}
+else if cmd.starts_with("L ") {
+    let after_l = &cmd["L ".len()..].trim();
+
+    let (count_expr, inline_close) = if after_l.ends_with(')') {
+        (after_l[..after_l.len() - 1].trim().to_string(), true)
+    } else {
+        (after_l.to_string(), false)
+    };
+
+    let mut body_lines = Vec::new();
+
+    if !inline_close {
+        i += 1;
+        while i < lines.len() && lines[i].trim() != ")" {
+            body_lines.push(lines[i].trim());
+            i += 1;
+        }
+
+        if i >= lines.len() {
+            errors.push("Unclosed loop: missing ')'".to_string());
+            break;
+        }
+    }
+
+    let js_count = self.transform_expression(&count_expr);
+
+    let mut js_body = String::new();
+    for bline in body_lines {
+        js_body.push_str(&self.transform_line(bline));
+        js_body.push('\n');
+    }
+
+    output.push_str(&format!(
+        "  for (let _i = 0; _i < ({}); _i++) {{\n{}}}\n",
+        js_count, js_body
+    ));
+
+    i += 1;
+    continue;
+}
             else if line.starts_with("Pop:") {
                 let stmt = (&line[4..]).trim().to_string();
                 if stmt.starts_with("New module") {
@@ -308,51 +332,51 @@ impl JovaCompiler {
         }
     }
     
-    fn parse_expression_definition(&self, def: &str) -> (String, String) {
-        let parts: Vec<&str> = def.split_whitespace().collect();
-        let mut params = Vec::new();
-        let mut body_parts = Vec::new();
-        
-        for part in parts {
-            if part.starts_with(':') && part.ends_with(':') {
-                let param_name = &part[1..part.len()-1];
-                params.push(param_name.to_string());
-                body_parts.push(param_name.to_string());
-            } else if part == ":+:" {
-                body_parts.push("+".to_string());
-            } else if part == ":-:" {
-                body_parts.push("-".to_string());
-            } else if part == ":*:" {
-                body_parts.push("*".to_string());
-            } else if part == ":/:" {
-                body_parts.push("/".to_string());
-            } else if part == ":%:" {
-                body_parts.push("%".to_string());
-            } else if part == ":EQ:" {
-                body_parts.push("===".to_string());
-            } else if part == ":NE:" {
-                body_parts.push("!==".to_string());
-            } else if part == ":GT:" {
-                body_parts.push(">".to_string());
-            } else if part == ":LT:" {
-                body_parts.push("<".to_string());
-            } else if part == ":GE:" {
-                body_parts.push(">=".to_string());
-            } else if part == ":LE:" {
-                body_parts.push("<=".to_string());
-            } else if part == ":AND:" {
-                body_parts.push("&&".to_string());
-            } else if part == ":OR:" {
-                body_parts.push("||".to_string());
-            } else if part == ":NOT:" {
-                body_parts.push("!".to_string());
-            } else {
-                body_parts.push(part.to_string());
-            }
+    fn parse_expression_definition(&self, def: &str) -> (Vec<String>, String) {
+    let parts: Vec<&str> = def.split_whitespace().collect();
+    let mut params = Vec::new();
+    let mut body_parts = Vec::new();
+
+    for part in parts {
+        if part.starts_with(':') && part.ends_with(':') {
+            let param_name = &part[1..part.len() - 1];
+            params.push(param_name.to_string());
+            body_parts.push(param_name.to_string());
+        } else if part == ":+:" {
+            body_parts.push("+".to_string());
+        } else if part == ":-:" {
+            body_parts.push("-".to_string());
+        } else if part == ":*:" {
+            body_parts.push("*".to_string());
+        } else if part == ":/:" {
+            body_parts.push("/".to_string());
+        } else if part == ":%:" {
+            body_parts.push("%".to_string());
+        } else if part == ":EQ:" {
+            body_parts.push("===".to_string());
+        } else if part == ":NE:" {
+            body_parts.push("!==".to_string());
+        } else if part == ":GT:" {
+            body_parts.push(">".to_string());
+        } else if part == ":LT:" {
+            body_parts.push("<".to_string());
+        } else if part == ":GE:" {
+            body_parts.push(">=".to_string());
+        } else if part == ":LE:" {
+            body_parts.push("<=".to_string());
+        } else if part == ":AND:" {
+            body_parts.push("&&".to_string());
+        } else if part == ":OR:" {
+            body_parts.push("||".to_string());
+        } else if part == ":NOT:" {
+            body_parts.push("!".to_string());
+        } else {
+            body_parts.push(part.to_string());
         }
-        
-        (params.join(", "), body_parts.join(" "))
     }
+
+    (params, body_parts.join(" "))
+}
     
     fn parse_json_value(&self, val: &str) -> serde_json::Value {
         let val = val.trim();
