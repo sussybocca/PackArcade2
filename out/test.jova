@@ -1,0 +1,6 @@
+// Test JOVA program
+JOVA:Import Pop.
+Pop:New module - testModel - model 99.
+JOVA:Export All Pops and Models.
+JOVA:New Language - TestLang.
+myValue - 100
